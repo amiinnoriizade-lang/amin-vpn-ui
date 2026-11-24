@@ -507,6 +507,11 @@
       lastOnlineMap: {},
       // Per-account live throughput, populated only from server traffic deltas.
       clientSpeeds: {},
+      speedPollTimer: null,
+      speedPollBusy: false,
+      // Persisted account counters are a fallback when the traffic WebSocket
+      // sample is absent. sampleAt is the time the counter last advanced.
+      lastClientCounters: {},
       expireDiff: 0,
       trafficDiff: 0,
       remarkModel: '-ieo',
@@ -620,6 +625,70 @@
         }
         // An empty sample resets stale rates while the online client remains at 0 B/s.
         this.clientSpeeds = next;
+      },
+      // Fallback to the exact same account-list endpoint the page uses. The
+      // endpoint returns cumulative, account-wide byte counters for every
+      // protocol, so this also covers clients whose live WebSocket sample is
+      // missing (or whose protocol does not expose Xray user stats).
+      async sampleClientSpeeds() {
+        if (this.speedPollBusy) return;
+        this.speedPollBusy = true;
+        try {
+          const q = `?page=${this.pagination.current}&size=${this.pagination.pageSize}`
+            + `&search=${encodeURIComponent(this.search || '')}`
+            + `&sort=${encodeURIComponent(this.sortKey)}`;
+          const msg = await HttpUtil.get('/panel/api/clients/list' + q);
+          if (!msg || !msg.success || !msg.obj || !Array.isArray(msg.obj.rows)) return;
+
+          const now = Date.now();
+          const previous = this.lastClientCounters;
+          const nextCounters = Object.create(null);
+          const nextSpeeds = Object.assign({}, this.clientSpeeds);
+          const staleAfterMs = 20000;
+
+          for (const row of msg.obj.rows) {
+            const email = this.normalizeClientEmail(row && row.email);
+            if (!email) continue;
+            const up = Math.max(0, Number(row.up) || 0);
+            const down = Math.max(0, Number(row.down) || 0);
+            const old = previous[email];
+
+            if (!old) {
+              nextCounters[email] = { up, down, sampleAt: now, changedAt: now };
+              if (!nextSpeeds[email]) nextSpeeds[email] = { up: 0, down: 0 };
+              continue;
+            }
+
+            const upDelta = up >= old.up ? up - old.up : 0;
+            const downDelta = down >= old.down ? down - old.down : 0;
+            const delta = upDelta + downDelta;
+            let sampleAt = old.sampleAt;
+            let changedAt = old.changedAt;
+
+            if (up < old.up || down < old.down) {
+              // A traffic reset or counter rollover: establish a new baseline.
+              sampleAt = now;
+              changedAt = now;
+              nextSpeeds[email] = { up: 0, down: 0 };
+            } else if (delta > 0) {
+              const elapsed = Math.max((now - old.sampleAt) / 1000, 0.1);
+              nextSpeeds[email] = { up: upDelta / elapsed, down: downDelta / elapsed };
+              sampleAt = now;
+              changedAt = now;
+            } else if (now - old.changedAt > staleAfterMs) {
+              nextSpeeds[email] = { up: 0, down: 0 };
+            }
+
+            nextCounters[email] = { up, down, sampleAt, changedAt };
+          }
+
+          this.lastClientCounters = nextCounters;
+          this.clientSpeeds = nextSpeeds;
+        } catch (e) {
+          console.warn('Live speed fallback sampling failed:', e);
+        } finally {
+          this.speedPollBusy = false;
+        }
       },
       usedPercent(row) {
         if (!row.totalGB) return 0;
@@ -1314,9 +1383,16 @@
         });
       },
     },
+    beforeDestroy() {
+      if (this.speedPollTimer) clearInterval(this.speedPollTimer);
+    },
     async mounted() {
       await this.getDefaultSettings();
       await this.reload(true);
+      // Keep WebSocket deltas as the primary source; this API sampler is a
+      // fallback from cumulative per-account counters, not a replacement.
+      await this.sampleClientSpeeds();
+      this.speedPollTimer = setInterval(() => this.sampleClientSpeeds(), 5000);
       if (window.wsClient) {
         // Subscribe before connecting; otherwise the first pushed traffic sample
         // can arrive before this page has registered its handler.
