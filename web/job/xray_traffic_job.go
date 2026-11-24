@@ -3,6 +3,8 @@ package job
 import (
 	"encoding/json"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/mhsanaei/3x-ui/v2/logger"
 	"github.com/mhsanaei/3x-ui/v2/web/service"
@@ -34,6 +36,25 @@ type XrayTrafficJob struct {
 	nftService      service.NftService
 	radiusService   *service.RadiusService
 	sweeper         *rbridge.Sweeper
+	speedMu         sync.Mutex
+	lastSpeedSample time.Time
+}
+
+// trafficSampleSeconds returns the real elapsed time between collector runs.
+// Xray and the VPN adapters expose byte deltas since their previous reset, so
+// dividing those deltas by this interval yields per-account bytes per second.
+func (j *XrayTrafficJob) trafficSampleSeconds() float64 {
+	now := time.Now()
+	j.speedMu.Lock()
+	defer j.speedMu.Unlock()
+	seconds := 1.0
+	if !j.lastSpeedSample.IsZero() {
+		if elapsed := now.Sub(j.lastSpeedSample).Seconds(); elapsed > 0 {
+			seconds = elapsed
+		}
+	}
+	j.lastSpeedSample = now
+	return seconds
 }
 
 // NewXrayTrafficJob creates a new traffic collection job instance.
@@ -106,6 +127,7 @@ func appendUnrecorded(existing, fallback []*xray.ClientTraffic) []*xray.ClientTr
 
 // Run collects traffic statistics from Xray and updates the database, triggering restart if needed.
 func (j *XrayTrafficJob) Run() {
+	sampleSeconds := j.trafficSampleSeconds()
 	var traffics []*xray.Traffic
 	var clientTraffics []*xray.ClientTraffic
 
@@ -267,8 +289,20 @@ func (j *XrayTrafficJob) Run() {
 	// its User Limit. The server owns every net.Conn, so this is an in-process close.
 	j.sshService.KillDisabledSessions()
 
-	// Skip DB update if no traffic to process
+	// An idle tick still publishes a zero-rate sample and fresh online state.
+	// Without this, the Clients page would keep showing the last non-zero speed
+	// forever after a user stops transferring data or disconnects.
 	if len(traffics) == 0 && len(clientTraffics) == 0 {
+		if websocket.HasClients() {
+			onlineClients := j.inboundService.GetOnlineClients()
+			onlineMemberships := j.inboundService.GetOnlineMemberships()
+			lastOnlineMap, err := j.inboundService.GetClientsLastOnline()
+			if err != nil {
+				logger.Warning("get clients last online failed:", err)
+				lastOnlineMap = make(map[string]int64)
+			}
+			j.broadcastTrafficScoped(nil, nil, onlineClients, onlineMemberships, lastOnlineMap, sampleSeconds)
+		}
 		return
 	}
 
@@ -342,7 +376,7 @@ func (j *XrayTrafficJob) Run() {
 	// Traffic names clients, so it is per-admin data and cannot go out panel-wide:
 	// broadcasting it whole put every admin's client emails and usage in every other
 	// admin's browser. Each connected admin gets only their own slice.
-	j.broadcastTrafficScoped(traffics, clientTraffics, onlineClients, onlineMemberships, lastOnlineMap)
+	j.broadcastTrafficScoped(traffics, clientTraffics, onlineClients, onlineMemberships, lastOnlineMap, sampleSeconds)
 
 	// Inbounds are per-admin, so this job cannot push a payload: it has no single
 	// correct audience. It used to broadcast GetAllInbounds() to every browser every
@@ -394,6 +428,7 @@ func (j *XrayTrafficJob) broadcastTrafficScoped(
 	onlineClients []string,
 	onlineMemberships []string,
 	lastOnlineMap map[string]int64,
+	sampleSeconds float64,
 ) {
 	hub := websocket.GetHub()
 	if hub == nil {
@@ -430,6 +465,7 @@ func (j *XrayTrafficJob) broadcastTrafficScoped(
 				"onlineClients":     onlineClients,
 				"onlineMemberships": onlineMemberships,
 				"lastOnlineMap":     lastOnlineMap,
+				"sampleSeconds":    sampleSeconds,
 			})
 			continue
 		}
@@ -468,6 +504,7 @@ func (j *XrayTrafficJob) broadcastTrafficScoped(
 			"onlineClients":     myOnline,
 			"onlineMemberships": myMemberships,
 			"lastOnlineMap":     myLastOnline,
+			"sampleSeconds":    sampleSeconds,
 		})
 	}
 }
