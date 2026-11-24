@@ -200,7 +200,7 @@ flowchart TB
 ## Компиляция из исходного кода
 
 ```bash
-git clone https://github.com/amiinnoriizade-lang/amin-vpn-ui.git && cd vpn-ui
+git clone https://github.com/amiinnoriizade-lang/amin-vpn-ui.git && cd amin-vpn-ui
 ./build.sh
 ```
 
