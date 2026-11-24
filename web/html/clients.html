@@ -229,7 +229,7 @@
                   </template>
 
                   <template slot="speedCol" slot-scope="text, row">
-                    <div v-if="isClientOnline(row.email)" class="bo-client-speed">
+                    <div v-if="hasClientSpeed(row)" class="bo-client-speed">
                       <span class="bo-client-speed-up" title="Upload"><a-icon type="arrow-up" /> [[ sizeFormat(clientSpeedFor(row).up) ]]/s</span>
                       <span class="bo-client-speed-down" title="Download"><a-icon type="arrow-down" /> [[ sizeFormat(clientSpeedFor(row).down) ]]/s</span>
                     </div>
@@ -597,6 +597,12 @@
       clientSpeedFor(row) {
         const key = this.normalizeClientEmail(row && row.email);
         return this.clientSpeeds[key] || { up: 0, down: 0 };
+      },
+      // Follow upstream 3x-ui: render only when a traffic delta is non-zero.
+      // Do not gate this on online-membership state; those are separate signals.
+      hasClientSpeed(row) {
+        const speed = this.clientSpeedFor(row);
+        return speed.up > 0 || speed.down > 0;
       },
       updateClientSpeeds(message) {
         // WebSocketClient emits the payload itself; accept the envelope too.
