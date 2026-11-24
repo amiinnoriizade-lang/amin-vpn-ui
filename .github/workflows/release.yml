@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - feat/sanaei-live-speed-nodes
     tags:
       - "v*"
   workflow_dispatch:
