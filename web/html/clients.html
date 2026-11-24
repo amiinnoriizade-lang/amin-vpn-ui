@@ -584,12 +584,16 @@
     },
     methods: {
       sizeFormat(b) { return SizeFormatter.sizeFormat(b || 0); },
-      updateClientSpeeds(payload) {
+      updateClientSpeeds(message) {
+        // wsClient versions may deliver either the message envelope or its payload.
+        const payload = message && message.payload && typeof message.payload === 'object'
+          ? message.payload : message;
         const seconds = Math.max(Number(payload && payload.sampleSeconds) || 1, 0.001);
         const next = {};
         for (const item of (payload && payload.clientTraffics) || []) {
           if (!item || !item.email) continue;
-          const speed = next[item.email] || (next[item.email] = { up: 0, down: 0 });
+          const email = String(item.email).trim();
+          const speed = next[email] || (next[email] = { up: 0, down: 0 });
           speed.up += Math.max(0, Number(item.up) || 0) / seconds;
           speed.down += Math.max(0, Number(item.down) || 0) / seconds;
         }
@@ -1292,9 +1296,12 @@
       await this.getDefaultSettings();
       await this.reload(true);
       if (window.wsClient) {
-        window.wsClient.connect();
-        window.wsClient.on('traffic', payload => {
-          if (!payload) return;
+        // Subscribe before connecting; otherwise the first pushed traffic sample
+        // can arrive before this page has registered its handler.
+        window.wsClient.on('traffic', message => {
+          if (!message) return;
+          const payload = message.payload && typeof message.payload === 'object'
+            ? message.payload : message;
           this.updateClientSpeeds(payload);
           if (Array.isArray(payload.onlineClients)) this.onlineClients = payload.onlineClients;
           if (Array.isArray(payload.onlineMemberships)) this.onlineMemberships = payload.onlineMemberships;
@@ -1303,6 +1310,7 @@
           }
         });
         window.wsClient.on('disconnected', () => { this.clientSpeeds = {}; });
+        window.wsClient.connect();
       }
       if (this.isRefreshEnabled) this.startDataRefreshLoop();
     },
