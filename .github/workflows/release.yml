@@ -56,6 +56,15 @@ jobs:
           file build/out/vpn-ui-amd64
           install -m 0755 build/out/vpn-ui-amd64 ./vpn-ui-amd64
 
+      - name: Upload experimental amd64 binary
+        if: github.ref == 'refs/heads/feat/sanaei-live-speed-nodes'
+        uses: actions/upload-artifact@v4
+        with:
+          name: amin-ui-linux-amd64-${{ github.sha }}
+          path: vpn-ui-amd64
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Read panel version
         id: panel-version
         if: github.ref == 'refs/heads/main'
