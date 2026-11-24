@@ -228,6 +228,14 @@
                     </div>
                   </template>
 
+                  <template slot="speedCol" slot-scope="text, row">
+                    <div v-if="isClientOnline(row.email)" class="bo-client-speed">
+                      <span class="bo-client-speed-up"><a-icon type="arrow-up" /> [[ sizeFormat(clientSpeeds[row.email] ? clientSpeeds[row.email].up : 0) ]]/s</span>
+                      <span class="bo-client-speed-down"><a-icon type="arrow-down" /> [[ sizeFormat(clientSpeeds[row.email] ? clientSpeeds[row.email].down : 0) ]]/s</span>
+                    </div>
+                    <span v-else class="bo-lg-seen">—</span>
+                  </template>
+
                   <template slot="seenCol" slot-scope="text, row">
                     <span class="bo-lg-seen" :class="{ 'bo-lg-seen--live': isClientOnline(row.email) }">
                       [[ lastSeen(row) ]]
@@ -497,6 +505,8 @@
       // indexes it once per refresh rather than scanning it per rendered block.
       onlineMemberships: [],
       lastOnlineMap: {},
+      // Per-account live throughput, populated only from server traffic deltas.
+      clientSpeeds: {},
       expireDiff: 0,
       trafficDiff: 0,
       remarkModel: '-ieo',
@@ -559,6 +569,7 @@
         }, extra || {});
         return [
           col('email', '{{ i18n "pages.clients.email" }}', 'accountCol', { width: 230 }),
+          col('speed', 'Live speed', 'speedCol', { width: 135 }),
           col('used', '{{ i18n "pages.clients.quota" }}', 'dataCol', { width: 170 }),
           col('expiry', '{{ i18n "pages.clients.expiry" }}', 'expiresCol', { width: 150 }),
           col('inbounds', '{{ i18n "pages.clients.inbounds" }}', 'servingCol'),
@@ -573,6 +584,17 @@
     },
     methods: {
       sizeFormat(b) { return SizeFormatter.sizeFormat(b || 0); },
+      updateClientSpeeds(payload) {
+        const seconds = Math.max(Number(payload && payload.sampleSeconds) || 1, 0.001);
+        const next = {};
+        for (const item of (payload && payload.clientTraffics) || []) {
+          if (!item || !item.email) continue;
+          const speed = next[item.email] || (next[item.email] = { up: 0, down: 0 });
+          speed.up += Math.max(0, Number(item.up) || 0) / seconds;
+          speed.down += Math.max(0, Number(item.down) || 0) / seconds;
+        }
+        this.clientSpeeds = next;
+      },
       usedPercent(row) {
         if (!row.totalGB) return 0;
         return Math.min(100, Math.round(((row.up + row.down) / row.totalGB) * 100));
@@ -1269,6 +1291,19 @@
     async mounted() {
       await this.getDefaultSettings();
       await this.reload(true);
+      if (window.wsClient) {
+        window.wsClient.connect();
+        window.wsClient.on('traffic', payload => {
+          if (!payload) return;
+          this.updateClientSpeeds(payload);
+          if (Array.isArray(payload.onlineClients)) this.onlineClients = payload.onlineClients;
+          if (Array.isArray(payload.onlineMemberships)) this.onlineMemberships = payload.onlineMemberships;
+          if (payload.lastOnlineMap && typeof payload.lastOnlineMap === 'object') {
+            this.lastOnlineMap = payload.lastOnlineMap;
+          }
+        });
+        window.wsClient.on('disconnected', () => { this.clientSpeeds = {}; });
+      }
       if (this.isRefreshEnabled) this.startDataRefreshLoop();
     },
   });
