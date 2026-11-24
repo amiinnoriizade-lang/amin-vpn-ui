@@ -143,7 +143,7 @@
                   :row-key="r => r.email"
                   :row-selection="{ selectedRowKeys: selectedEmails, onChange: onSelectChange }"
                   :pagination="pagination"
-                  :scroll="{ x: 1100 }"
+                  :scroll="{ x: 1220 }"
                   :expanded-row-keys="expandedRowKeys"
                   v-on="{ expandedRowsChange: keys => { expandedRowKeys = keys; } }"
                   @change="onTableChange"
@@ -230,8 +230,8 @@
 
                   <template slot="speedCol" slot-scope="text, row">
                     <div v-if="isClientOnline(row.email)" class="bo-client-speed">
-                      <span class="bo-client-speed-up" style="display:block;color:#16a34a;white-space:nowrap" title="Upload"><a-icon type="arrow-up" /> [[ sizeFormat(clientSpeeds[row.email] ? clientSpeeds[row.email].up : 0) ]]/s</span>
-                      <span class="bo-client-speed-down" style="display:block;color:#3b82f6;white-space:nowrap" title="Download"><a-icon type="arrow-down" /> [[ sizeFormat(clientSpeeds[row.email] ? clientSpeeds[row.email].down : 0) ]]/s</span>
+                      <span class="bo-client-speed-up" title="Upload"><a-icon type="arrow-up" /> [[ sizeFormat(clientSpeedFor(row).up) ]]/s</span>
+                      <span class="bo-client-speed-down" title="Download"><a-icon type="arrow-down" /> [[ sizeFormat(clientSpeedFor(row).down) ]]/s</span>
                     </div>
                     <span v-else class="bo-lg-seen">—</span>
                   </template>
@@ -568,12 +568,12 @@
           title, key, scopedSlots: { customRender: slot },
         }, extra || {});
         return [
-          col('email', '{{ i18n "pages.clients.email" }}', 'accountCol', { width: 230 }),
-          col('speed', 'Live speed', 'speedCol', { width: 135 }),
+          col('email', '{{ i18n "pages.clients.email" }}', 'accountCol', { width: 220 }),
+          col('speed', 'Live speed', 'speedCol', { width: 155 }),
           col('used', '{{ i18n "pages.clients.quota" }}', 'dataCol', { width: 170 }),
           col('expiry', '{{ i18n "pages.clients.expiry" }}', 'expiresCol', { width: 150 }),
-          col('inbounds', '{{ i18n "pages.clients.inbounds" }}', 'servingCol'),
-          col('lastOnline', '{{ i18n "lastOnline" }}', 'seenCol', { width: 100 }),
+          col('inbounds', '{{ i18n "pages.clients.inbounds" }}', 'servingCol', { width: 220 }),
+          col('lastOnline', '{{ i18n "lastOnline" }}', 'seenCol', { width: 120 }),
           // 104 fitted a switch and a menu button. The Account Info button made three
           // controls, which overflowed the cell and gave the whole table a horizontal
           // scrollbar. Measured, not guessed: switch 28 + gap 6 + button 24 + gap 6 +
@@ -583,20 +583,36 @@
       },
     },
     methods: {
-      sizeFormat(b) { return SizeFormatter.sizeFormat(b || 0); },
+      sizeFormat(b) { return SizeFormatter.sizeFormat(Math.max(0, Number(b) || 0)); },
+      normalizeClientEmail(email) {
+        return String(email || '').trim().toLowerCase();
+      },
+      // Use one normalized identity for the online list and traffic samples.
+      isClientOnline(email) {
+        const key = this.normalizeClientEmail(email);
+        return !!key && (this.onlineClients || []).some(value =>
+          this.normalizeClientEmail(value && value.email ? value.email : value) === key
+        );
+      },
+      clientSpeedFor(row) {
+        const key = this.normalizeClientEmail(row && row.email);
+        return this.clientSpeeds[key] || { up: 0, down: 0 };
+      },
       updateClientSpeeds(message) {
-        // wsClient versions may deliver either the message envelope or its payload.
+        // WebSocketClient emits the payload itself; accept the envelope too.
         const payload = message && message.payload && typeof message.payload === 'object'
-          ? message.payload : message;
-        const seconds = Math.max(Number(payload && payload.sampleSeconds) || 1, 0.001);
-        const next = {};
-        for (const item of (payload && payload.clientTraffics) || []) {
+          ? message.payload : (message || {});
+        const seconds = Math.max(Number(payload.sampleSeconds) || 1, 0.001);
+        const next = Object.create(null);
+        for (const item of Array.isArray(payload.clientTraffics) ? payload.clientTraffics : []) {
           if (!item || !item.email) continue;
-          const email = String(item.email).trim();
+          const email = this.normalizeClientEmail(item.email);
+          if (!email) continue;
           const speed = next[email] || (next[email] = { up: 0, down: 0 });
           speed.up += Math.max(0, Number(item.up) || 0) / seconds;
           speed.down += Math.max(0, Number(item.down) || 0) / seconds;
         }
+        // An empty sample resets stale rates while the online client remains at 0 B/s.
         this.clientSpeeds = next;
       },
       usedPercent(row) {
