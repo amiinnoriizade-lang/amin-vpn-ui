@@ -507,6 +507,10 @@
       lastOnlineMap: {},
       // Per-account live throughput, populated only from server traffic deltas.
       clientSpeeds: {},
+      speedPollTimer: null,
+      speedPollBusy: false,
+      lastClientUsageSample: {},
+      lastClientUsageSampleAt: 0,
       expireDiff: 0,
       trafficDiff: 0,
       remarkModel: '-ieo',
@@ -614,6 +618,46 @@
         }
         // An empty sample resets stale rates while the online client remains at 0 B/s.
         this.clientSpeeds = next;
+      },
+      // Live speed fallback based on the same per-client counters the panel
+      // persists for quota/billing. This avoids depending on transient WebSocket
+      // delivery and works for Xray and VPN-adapter clients alike.
+      async sampleClientSpeeds() {
+        if (this.speedPollBusy) return;
+        this.speedPollBusy = true;
+        try {
+          const q = `?page=${this.pagination.current}&size=${this.pagination.pageSize}`
+            + `&search=${encodeURIComponent(this.search || '')}`
+            + `&sort=${encodeURIComponent(this.sortKey)}`;
+          const msg = await HttpUtil.get('/panel/api/clients/list' + q);
+          if (!msg || !msg.success || !msg.obj) return;
+          const rows = Array.isArray(msg.obj.rows) ? msg.obj.rows : [];
+          const now = Date.now();
+          const elapsed = this.lastClientUsageSampleAt
+            ? Math.max((now - this.lastClientUsageSampleAt) / 1000, 0.1) : 0;
+          const previous = this.lastClientUsageSample;
+          const current = Object.create(null);
+          const speeds = Object.create(null);
+          for (const row of rows) {
+            const email = this.normalizeClientEmail(row && row.email);
+            if (!email) continue;
+            const up = Math.max(0, Number(row.up) || 0);
+            const down = Math.max(0, Number(row.down) || 0);
+            current[email] = { up, down };
+            const before = previous[email];
+            speeds[email] = before && elapsed > 0 ? {
+              up: up >= before.up ? (up - before.up) / elapsed : 0,
+              down: down >= before.down ? (down - before.down) / elapsed : 0,
+            } : { up: 0, down: 0 };
+          }
+          this.lastClientUsageSample = current;
+          this.lastClientUsageSampleAt = now;
+          this.clientSpeeds = speeds;
+        } catch (e) {
+          console.warn('Live speed sampling failed:', e);
+        } finally {
+          this.speedPollBusy = false;
+        }
       },
       usedPercent(row) {
         if (!row.totalGB) return 0;
@@ -896,7 +940,11 @@
       },
       toggleRefresh() {
         localStorage.setItem("isRefreshEnabled", this.isRefreshEnabled);
-        if (this.isRefreshEnabled) this.startDataRefreshLoop();
+        // Sample persisted per-client counters every 2 seconds. The first sample
+      // establishes a baseline; subsequent samples render upload/download B/s.
+      this.sampleClientSpeeds();
+      this.speedPollTimer = setInterval(() => this.sampleClientSpeeds(), 2000);
+      if (this.isRefreshEnabled) this.startDataRefreshLoop();
       },
       changeRefreshInterval() {
         localStorage.setItem("refreshInterval", this.refreshInterval);
@@ -1308,6 +1356,9 @@
         });
       },
     },
+    beforeDestroy() {
+      if (this.speedPollTimer) clearInterval(this.speedPollTimer);
+    },
     async mounted() {
       await this.getDefaultSettings();
       await this.reload(true);
@@ -1318,7 +1369,6 @@
           if (!message) return;
           const payload = message.payload && typeof message.payload === 'object'
             ? message.payload : message;
-          this.updateClientSpeeds(payload);
           if (Array.isArray(payload.onlineClients)) this.onlineClients = payload.onlineClients;
           if (Array.isArray(payload.onlineMemberships)) this.onlineMemberships = payload.onlineMemberships;
           if (payload.lastOnlineMap && typeof payload.lastOnlineMap === 'object') {
