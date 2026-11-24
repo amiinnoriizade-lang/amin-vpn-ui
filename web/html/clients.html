@@ -230,8 +230,8 @@
 
                   <template slot="speedCol" slot-scope="text, row">
                     <div v-if="isClientOnline(row.email)" class="bo-client-speed">
-                      <span class="bo-client-speed-up"><a-icon type="arrow-up" /> [[ sizeFormat(clientSpeeds[row.email] ? clientSpeeds[row.email].up : 0) ]]/s</span>
-                      <span class="bo-client-speed-down"><a-icon type="arrow-down" /> [[ sizeFormat(clientSpeeds[row.email] ? clientSpeeds[row.email].down : 0) ]]/s</span>
+                      <span class="bo-client-speed-up" style="display:block;color:#16a34a;white-space:nowrap" title="Upload"><a-icon type="arrow-up" /> [[ sizeFormat(clientSpeeds[row.email] ? clientSpeeds[row.email].up : 0) ]]/s</span>
+                      <span class="bo-client-speed-down" style="display:block;color:#3b82f6;white-space:nowrap" title="Download"><a-icon type="arrow-down" /> [[ sizeFormat(clientSpeeds[row.email] ? clientSpeeds[row.email].down : 0) ]]/s</span>
                     </div>
                     <span v-else class="bo-lg-seen">—</span>
                   </template>
