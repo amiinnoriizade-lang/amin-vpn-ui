@@ -505,8 +505,11 @@
       // indexes it once per refresh rather than scanning it per rendered block.
       onlineMemberships: [],
       lastOnlineMap: {},
-      // Per-account live throughput, populated only from server traffic deltas.
+      // Fallback rates from cumulative account counters (used until live sources report).
       clientSpeeds: {},
+      // Independent live sources: local Xray/TUIC and managed nodes must never erase
+      // one another when their polling cycles arrive at different times.
+      clientSpeedSources: { xray: {}, tuic: {}, node: {} },
       speedPollTimer: null,
       speedPollBusy: false,
       // Persisted account counters are a fallback when the traffic WebSocket
@@ -601,7 +604,18 @@
       },
       clientSpeedFor(row) {
         const key = this.normalizeClientEmail(row && row.email);
-        return this.clientSpeeds[key] || { up: 0, down: 0 };
+        if (!key) return { up: 0, down: 0 };
+        const sources = this.clientSpeedSources || {};
+        const live = Object.values(sources).some(source => source && Object.keys(source).length > 0);
+        if (!live) return this.clientSpeeds[key] || { up: 0, down: 0 };
+        const total = { up: 0, down: 0 };
+        for (const source of Object.values(sources)) {
+          const speed = source && source[key];
+          if (!speed) continue;
+          total.up += speed.up;
+          total.down += speed.down;
+        }
+        return total;
       },
       // Follow upstream 3x-ui: render only when a traffic delta is non-zero.
       // Do not gate this on online-membership state; those are separate signals.
@@ -613,7 +627,11 @@
         // WebSocketClient emits the payload itself; accept the envelope too.
         const payload = message && message.payload && typeof message.payload === 'object'
           ? message.payload : (message || {});
-        const seconds = Math.max(Number(payload.sampleSeconds) || 1, 0.001);
+        const source = ['xray', 'tuic', 'node'].includes(payload.clientTrafficSource)
+          ? payload.clientTrafficSource : 'xray';
+        const intervalMs = Number(payload.clientTrafficIntervalMs);
+        const seconds = Math.max(intervalMs > 0
+          ? intervalMs / 1000 : (Number(payload.sampleSeconds) || 1), 0.001);
         const next = Object.create(null);
         for (const item of Array.isArray(payload.clientTraffics) ? payload.clientTraffics : []) {
           if (!item || !item.email) continue;
@@ -623,8 +641,9 @@
           speed.up += Math.max(0, Number(item.up) || 0) / seconds;
           speed.down += Math.max(0, Number(item.down) || 0) / seconds;
         }
-        // An empty sample resets stale rates while the online client remains at 0 B/s.
-        this.clientSpeeds = next;
+        // Replace only this source. An idle node must not clear local Xray speed,
+        // and a local Xray poll must not erase a node's current throughput.
+        this.$set(this.clientSpeedSources, source, next);
       },
       // Fallback to the exact same account-list endpoint the page uses. The
       // endpoint returns cumulative, account-wide byte counters for every
@@ -683,6 +702,9 @@
           }
 
           this.lastClientCounters = nextCounters;
+          // The REST sampler is an account-wide fallback. It is displayed only
+          // when no live source has reported, avoiding double-counting local+node
+          // traffic against the aggregate counters.
           this.clientSpeeds = nextSpeeds;
         } catch (e) {
           console.warn('Live speed fallback sampling failed:', e);
@@ -1407,7 +1429,10 @@
             this.lastOnlineMap = payload.lastOnlineMap;
           }
         });
-        window.wsClient.on('disconnected', () => { this.clientSpeeds = {}; });
+        window.wsClient.on('disconnected', () => {
+          this.clientSpeedSources = { xray: {}, tuic: {}, node: {} };
+          this.clientSpeeds = {};
+        });
         window.wsClient.connect();
       }
       if (this.isRefreshEnabled) this.startDataRefreshLoop();
