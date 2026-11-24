@@ -105,11 +105,11 @@ func requireRoot() {
 	os.Exit(1)
 }
 
-// ansiVpnUI renders "[VPN-UI]" in the panel logo's colours — teal brackets,
+// ansiVpnUI renders "[AMIN-UI]" in the panel logo's colours — teal brackets,
 // deep-teal letters, a green hyphen — as a bold CLI banner. Falls back to plain
 // text when NO_COLOR is set or stdout isn't a TTY.
 func ansiVpnUI() string {
-	const text = "[VPN-UI]"
+	const text = "[AMIN-UI]"
 	if os.Getenv("NO_COLOR") != "" || !stdoutIsTTY() {
 		return text
 	}
