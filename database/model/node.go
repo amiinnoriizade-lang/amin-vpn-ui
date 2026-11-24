@@ -21,6 +21,17 @@ type Node struct {
  Guid string `json:"guid" gorm:"size:64;index"`
  ParentGuid string `json:"parentGuid" gorm:"size:64;index"`
  Transitive bool `json:"transitive" gorm:"not null;default:false"`
+
+ Status string `json:"status" gorm:"size:16;not null;default:unknown;index"`
+ LastHeartbeat int64 `json:"lastHeartbeat" gorm:"not null;default:0"`
+ LatencyMs int `json:"latencyMs" gorm:"not null;default:0"`
+ LastError string `json:"lastError" gorm:"type:text"`
+ CpuPct float64 `json:"cpuPct" gorm:"not null;default:0"`
+ MemPct float64 `json:"memPct" gorm:"not null;default:0"`
+ UptimeSecs uint64 `json:"uptimeSecs" gorm:"not null;default:0"`
+ PanelVersion string `json:"panelVersion" gorm:"size:64"`
+ XrayVersion string `json:"xrayVersion" gorm:"size:64"`
+ XrayState string `json:"xrayState" gorm:"size:24"`
  CreatedAt int64 `json:"createdAt" gorm:"autoCreateTime:milli"`
  UpdatedAt int64 `json:"updatedAt" gorm:"autoUpdateTime:milli"`
 }
