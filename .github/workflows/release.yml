@@ -39,6 +39,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential gcc g++ make pkg-config git curl wget file xz-utils
 
+      - name: Prepare telemt source (not tracked as a gitlink in this repository)
+        run: |
+          if [ ! -f third_party/telemt/Cargo.toml ]; then
+            mkdir -p third_party
+            git clone --depth 1 --branch main https://github.com/Sir-MmD/telemt third_party/telemt
+          fi
+          test -s third_party/telemt/Cargo.toml
+
       - name: Build complete amd64 binary
         run: |
           chmod +x ./build.sh
