@@ -2657,3 +2657,45 @@ body.dark .custom-geo-section .ant-table:not(.ant-table-expanded-row .ant-table)
   border-color:var(--dark-color-surface-400);
 }
 
+
+
+/* AMIN-UI Clients: keep membership chips inside their own table cell. */
+.clients-page .bo-lg-serving {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+.clients-page .bo-lg-serving .bo-proto {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.clients-page .bo-lg-serving .bo-lg-port {
+  flex: 0 0 auto;
+}
+.clients-page .bo-client-speed {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 112px;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.clients-page .bo-client-speed-up,
+.clients-page .bo-client-speed-down {
+  display: block;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.clients-page .ant-table-tbody > tr > td {
+  vertical-align: middle;
+}
