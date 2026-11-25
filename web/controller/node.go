@@ -6,6 +6,7 @@ import (
  "net/url"
  "time"
  "encoding/json"
+ "fmt"
  "context"
 
  "github.com/google/uuid"
@@ -225,7 +226,6 @@ func (a *NodeController) createClient(c *gin.Context) {
   c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "flow is only available for VLESS"})
   return
  }
- clientID := uuid.NewString()
  expiry := int64(0)
  if req.Days > 0 {
   expiry = time.Now().AddDate(0, 0, req.Days).UnixMilli()
@@ -234,7 +234,7 @@ func (a *NodeController) createClient(c *gin.Context) {
  }
  payload := map[string]any{
   "client": map[string]any{
-   "id": clientID, "email": req.Email, "totalGB": req.TotalGB * (1 << 30),
+   "email": req.Email, "totalGB": req.TotalGB * (1 << 30),
    "expiryTime": expiry, "enable": true, "flow": req.Flow,
   },
   "inboundIds": []int{req.InboundID},
@@ -254,7 +254,7 @@ func (a *NodeController) createClient(c *gin.Context) {
  _ = nodeDB().Create(&model.NodeClientSnapshot{NodeID:id,Email:req.Email,Total:req.TotalGB * (1 << 30),ExpiryTime:expiry,Enable:true,LastSyncAt:time.Now().UnixMilli()}).Error
  c.JSON(http.StatusOK, gin.H{"success": true, "obj": gin.H{
   "nodeId": id, "inboundId": req.InboundID, "inbound": inbound.Remark,
-  "protocol": protocol, "email": req.Email, "clientId": clientID,
+  "protocol": protocol, "email": req.Email,
   "totalGB": req.TotalGB * (1 << 30), "expiryTime": expiry,
  }})
 }
@@ -345,10 +345,26 @@ func (a *NodeController) updateNodeClient(c *gin.Context) {
  if err:=nodeDB().Where("node_id = ? AND email = ?",n.Id,email).First(&exists).Error; err!=nil { c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"client not found in this node"}); return }
  var req nodeClientMutation
  if err:=c.ShouldBindJSON(&req); err!=nil || req.TotalBytes<0 || req.TotalBytes>1000000*(1<<30) { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid quota, expiry or enable value"}); return }
- payload,err:=json.Marshal(map[string]any{"email":email,"totalGB":req.TotalBytes,"expiryTime":req.ExpiryTime,"enable":req.Enable})
- if err!=nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"could not encode client update"}); return }
  ctx,cancel:=context.WithTimeout(c.Request.Context(),12*time.Second); defer cancel()
- if _,err=job.ManageNodeClient(ctx,n,http.MethodPost,"panel/api/clients/update/"+email,payload); err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":err.Error()}); return }
+ // The upstream update handler replaces the client record. Fetch the full record
+ // first so fields not edited here (UUID/password, flow, limits, comments, etc.)
+ // are preserved instead of silently reset by a partial payload.
+ raw,err:=job.ManageNodeClient(ctx,n,http.MethodGet,"panel/api/clients/get/"+url.PathEscape(email),nil)
+ if err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"could not read remote client before update: "+err.Error()}); return }
+ var payloadMap map[string]any
+ if err=json.Unmarshal(raw,&payloadMap); err!=nil || payloadMap==nil {
+  c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"remote client details have an unexpected format"}); return
+ }
+ if nested,ok:=payloadMap["client"].(map[string]any); ok { payloadMap=nested }
+ if strings.TrimSpace(fmt.Sprint(payloadMap["email"]))!=email {
+  c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"remote client details did not match the requested username"}); return
+ }
+ payloadMap["totalGB"]=req.TotalBytes
+ payloadMap["expiryTime"]=req.ExpiryTime
+ payloadMap["enable"]=req.Enable
+ payload,err:=json.Marshal(payloadMap)
+ if err!=nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"could not encode complete client update"}); return }
+ if _,err=job.ManageNodeClient(ctx,n,http.MethodPost,"panel/api/clients/update/"+url.PathEscape(email),payload); err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":err.Error()}); return }
  if err=nodeDB().Model(&model.NodeClientSnapshot{}).Where("node_id = ? AND email = ?",n.Id,email).Updates(map[string]any{"total":req.TotalBytes,"expiry_time":req.ExpiryTime,"enable":req.Enable,"last_sync_at":time.Now().UnixMilli()}).Error; err!=nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"remote client updated but local snapshot refresh failed: "+err.Error()}); return }
  c.JSON(http.StatusOK,gin.H{"success":true})
 }
