@@ -9,7 +9,6 @@ import (
  "fmt"
  "context"
 
- "github.com/google/uuid"
 
  "github.com/mhsanaei/3x-ui/v2/web/job"
  "github.com/mhsanaei/3x-ui/v2/web/websocket"
@@ -376,7 +375,7 @@ func (a *NodeController) deleteNodeClient(c *gin.Context) {
  var exists model.NodeClientSnapshot
  if err:=nodeDB().Where("node_id = ? AND email = ?",n.Id,email).First(&exists).Error; err!=nil { c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"client not found in this node"}); return }
  ctx,cancel:=context.WithTimeout(c.Request.Context(),12*time.Second); defer cancel()
- if _,err:=job.ManageNodeClient(ctx,n,http.MethodPost,"panel/api/clients/del/"+email,[]byte("{}")); err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":err.Error()}); return }
+ if _,err:=job.ManageNodeClient(ctx,n,http.MethodPost,"panel/api/clients/del/"+url.PathEscape(email)+"?keepTraffic=0",[]byte("{}")); err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":err.Error()}); return }
  _=nodeDB().Where("node_id = ? AND email = ?",n.Id,email).Delete(&model.NodeClientSnapshot{}).Error
  c.JSON(http.StatusOK,gin.H{"success":true})
 }
