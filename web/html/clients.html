@@ -502,7 +502,7 @@
     </a-form-model-item>
     <a-form-model-item label="Inbound" required v-if="!nodeClientEditing">
       <a-select v-model="nodeClientForm.inboundId" placeholder="انتخاب Inbound">
-        <a-select-option v-for="ib in managedNodeInbounds" :key="ib.remoteId" :value="ib.remoteId" :disabled="!ib.enable">
+        <a-select-option v-for="ib in managedNodeInbounds" :key="ib.remoteId" :value="ib.remoteId" :disabled="!ib.enable || !['vless','vmess','trojan'].includes(ib.protocol)">
           [[ ib.remark||ib.tag||('Inbound '+ib.remoteId) ]] · [[ ib.protocol ]] · :[[ ib.port ]]
         </a-select-option>
       </a-select>
@@ -511,7 +511,7 @@
     <a-form-model-item label="حجم (GB)"><a-input-number v-model="nodeClientForm.totalGB" :min="0" :max="1000000" style="width:100%"/><small>صفر = نامحدود</small></a-form-model-item>
     <a-form-model-item label="Flow" v-if="!nodeClientEditing && managedNodeInbounds.find(x=>x.remoteId===nodeClientForm.inboundId && x.protocol==='vless')"><a-select v-model="nodeClientForm.flow" allow-clear placeholder="بدون Flow"><a-select-option value="xtls-rprx-vision">xtls-rprx-vision</a-select-option></a-select></a-form-model-item>
     <a-form-model-item label="اعتبار (روز)" v-if="!nodeClientEditing"><a-input-number v-model="nodeClientForm.days" :min="0" :max="36500" style="width:100%"/><small>صفر = بدون انقضا</small></a-form-model-item>
-    <a-form-model-item label="روز باقی‌مانده" v-else><a-input-number v-model="nodeClientForm.days" :min="0" :max="36500" style="width:100%"/><small>صفر = بدون انقضا</small></a-form-model-item>
+    <a-form-model-item label="روز نسبت به امروز" v-else><a-input-number v-model="nodeClientForm.days" :min="-36500" :max="36500" style="width:100%"/><small>منفی = تاریخ انقضای گذشته؛ صفر = بدون انقضا</small></a-form-model-item>
     <a-form-model-item label="وضعیت" v-if="nodeClientEditing"><a-switch v-model="nodeClientForm.enable" checked-children="فعال" un-checked-children="خاموش"/></a-form-model-item>
   </a-form-model>
 </a-modal>
@@ -1219,7 +1219,9 @@
         this.nodeClientEditing = true;
         this.nodeClientForm = {
           nodeId:row.nodeId,email:row.email,totalGB:row.total===0?0:Math.floor(row.total/1073741824),
-          days:row.expiryTime>0?Math.max(0,Math.ceil((row.expiryTime-Date.now())/86400000)):0,
+          days:row.expiryTime>0?Math.ceil((row.expiryTime-Date.now())/86400000):0,
+          originalDays:row.expiryTime>0?Math.ceil((row.expiryTime-Date.now())/86400000):0,
+          expiryTime:Number(row.expiryTime)||0,
           enable:!!row.enable,
         };
         this.nodeClientModalVisible = true;
@@ -1233,7 +1235,7 @@
         this.nodeClientSaving=true;
         let r;
         if (this.nodeClientEditing) {
-          const expiryTime=f.days>0?Date.now()+f.days*86400000:0;
+          const expiryTime=f.days===f.originalDays?f.expiryTime:(f.days!==0?Date.now()+f.days*86400000:0);
           r=await HttpUtil.post('/panel/api/nodes/clients/update/'+f.nodeId+'/'+encodeURIComponent(f.email),
             {totalGB:f.totalGB,expiryTime,enable:f.enable});
         } else {
