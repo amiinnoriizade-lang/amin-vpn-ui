@@ -130,9 +130,9 @@ function emptyNode(){return {name:'',remark:'',scheme:'https',address:'',port:20
 const app = new Vue({
  delimiters:['[[',']]'], mixins:[MediaQueryMixin], el:'#app',
  data:{clientModalVisible:false,clientNode:null,clientInbounds:[],loadingClientInbounds:false,creatingClient:false,createdClient:null,clientForm:{inboundId:null,email:'',totalGB:0,months:1,flow:''},themeSwitcher,pageTitle:'Nodes',pageClass:'',loading:false,saving:false,probingId:null,nodes:[],columns:nodeColumns,modalVisible:false,editing:false,editingId:null,form:emptyNode()},
+ computed:{selectedClientInbound(){return this.clientInbounds.find(x=>x.remoteId===this.clientForm.inboundId)||null;}},
  methods:{
   async loadNodes(){this.loading=true;const r=await HttpUtil.get('/panel/api/nodes/list');this.loading=false;if(r&&r.success)this.nodes=r.obj||[];},
-  get selectedClientInbound(){return this.clientInbounds.find(x=>x.remoteId===this.clientForm.inboundId)||null;},
   async openCreateClient(n){
    this.clientNode=n;this.clientInbounds=[];this.createdClient=null;this.clientForm={inboundId:null,email:'',totalGB:0,months:1,flow:''};this.clientModalVisible=true;this.loadingClientInbounds=true;
    const r=await HttpUtil.get('/panel/api/nodes/snapshot/'+n.id);this.loadingClientInbounds=false;
