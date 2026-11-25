@@ -1,6 +1,7 @@
 package job
 
 import (
+ "bytes"
  "context"
  "crypto/sha256"
  "crypto/subtle"
@@ -96,6 +97,12 @@ func nodeAddressAllowed(ip net.IP) bool {
 }
 
 func nodeRequest(ctx context.Context, n model.Node, method, endpoint string) (json.RawMessage, error) {
+ return nodeRequestBody(ctx, n, method, endpoint, nil)
+}
+
+// nodeRequestBody sends an authenticated request through the same DNS, SSRF, TLS,
+// timeout, redirect, and response-size protections used by node synchronization.
+func nodeRequestBody(ctx context.Context, n model.Node, method, endpoint string, body []byte) (json.RawMessage, error) {
  if n.ApiToken == "" { return nil, fmt.Errorf("node API token is missing") }
  if n.Port < 1 || n.Port > 65535 { return nil, fmt.Errorf("invalid node port") }
  scheme := n.Scheme
@@ -114,9 +121,12 @@ func nodeRequest(ctx context.Context, n model.Node, method, endpoint string) (js
  u := url.URL{Scheme: scheme, Host: net.JoinHostPort(host, strconv.Itoa(n.Port)), Path: basePath + "/" + strings.TrimLeft(endpoint, "/")}
  reqCtx, cancel := context.WithTimeout(ctx, nodeTrafficRequestTimeout)
  defer cancel()
- req, err := http.NewRequestWithContext(reqCtx, method, u.String(), nil)
+ var requestBody io.Reader
+ if body != nil { requestBody = bytes.NewReader(body) }
+ req, err := http.NewRequestWithContext(reqCtx, method, u.String(), requestBody)
  if err != nil { return nil, err }
  req.Header.Set("Accept", "application/json")
+ if body != nil { req.Header.Set("Content-Type", "application/json") }
  req.Header.Set("Authorization", "Bearer " + n.ApiToken)
  transport := &http.Transport{
   TLSClientConfig: &tls.Config{
@@ -150,6 +160,12 @@ func nodeRequest(ctx context.Context, n model.Node, method, endpoint string) (js
  if err := json.Unmarshal(raw, &env); err != nil { return nil, fmt.Errorf("decode remote response: %w", err) }
  if !env.Success { return nil, fmt.Errorf("remote API: %s", env.Msg) }
  return env.Obj, nil
+}
+
+// CreateNodeClient provisions one account on a remote Sanaei/3x-ui node.
+// The caller must validate the selected inbound against the synchronized snapshot.
+func CreateNodeClient(ctx context.Context, n model.Node, payload []byte) (json.RawMessage, error) {
+ return nodeRequestBody(ctx, n, http.MethodPost, "panel/api/clients/add", payload)
 }
 
 func decodeRemoteOnline(raw json.RawMessage) map[string]bool {
