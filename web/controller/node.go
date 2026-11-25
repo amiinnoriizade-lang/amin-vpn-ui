@@ -56,6 +56,9 @@ func NewNodeController(g *gin.RouterGroup) *NodeController {
  g.POST("/probe/:id", c.probe)
  g.GET("/snapshot/:id", c.snapshot)
  g.POST("/createClient/:id", c.createClient)
+ g.GET("/clients", c.listNodeClients)
+ g.POST("/clients/update/:id/:email", c.updateNodeClient)
+ g.POST("/clients/delete/:id/:email", c.deleteNodeClient)
  return c
 }
 
@@ -277,4 +280,81 @@ func (a *NodeController) snapshot(c *gin.Context) {
   "nodeId": id, "lastSyncAt": node.LastSyncAt, "lastSyncError": node.LastSyncError,
   "inbounds": inbounds, "clients": clients,
  }})
+}
+
+
+type nodeClientMutation struct {
+ TotalGB int64 `json:"totalGB"`
+ ExpiryTime int64 `json:"expiryTime"`
+ Enable bool `json:"enable"`
+}
+
+func (a *NodeController) listNodeClients(c *gin.Context) {
+ type row struct {
+  model.NodeClientSnapshot
+  NodeName string `json:"nodeName"`
+  NodeAddress string `json:"nodeAddress"`
+  NodeStatus string `json:"nodeStatus"`
+ }
+ var snapshots []model.NodeClientSnapshot
+ if err := nodeDB().Order("node_id asc, email asc").Find(&snapshots).Error; err != nil {
+  c.JSON(http.StatusInternalServerError, gin.H{"success":false,"msg":err.Error()}); return
+ }
+ nodes := map[int]model.Node{}
+ var all []model.Node
+ if err := nodeDB().Find(&all).Error; err != nil {
+  c.JSON(http.StatusInternalServerError, gin.H{"success":false,"msg":err.Error()}); return
+ }
+ for _, n := range all { nodes[n.Id] = n }
+ rows := make([]row,0,len(snapshots))
+ for _, s := range snapshots {
+  n, ok := nodes[s.NodeID]; if !ok { continue }
+  rows = append(rows,row{NodeClientSnapshot:s,NodeName:n.Name,NodeAddress:n.Address,NodeStatus:n.Status})
+ }
+ c.JSON(http.StatusOK,gin.H{"success":true,"obj":rows})
+}
+
+func (a *NodeController) loadManageableNode(c *gin.Context) (model.Node, bool) {
+ id, err := strconv.Atoi(c.Param("id"))
+ if err != nil || id < 1 { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid node id"}); return model.Node{},false }
+ var n model.Node
+ if err = nodeDB().First(&n,id).Error; err != nil { c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"node not found"}); return model.Node{},false }
+ if !n.Enable { c.JSON(http.StatusConflict,gin.H{"success":false,"msg":"node is disabled"}); return model.Node{},false }
+ return n,true
+}
+
+func validRemoteEmail(email string) bool {
+ email = strings.TrimSpace(email)
+ if len(email)<1 || len(email)>64 { return false }
+ for _, r := range email {
+  if !(r>='a'&&r<='z'||r>='A'&&r<='Z'||r>='0'&&r<='9'||r=='.'||r=='_'||r=='-') { return false }
+ }
+ return true
+}
+
+func (a *NodeController) updateNodeClient(c *gin.Context) {
+ n,ok:=a.loadManageableNode(c); if !ok { return }
+ email:=strings.TrimSpace(c.Param("email"))
+ if !validRemoteEmail(email) { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid username"}); return }
+ var exists model.NodeClientSnapshot
+ if err:=nodeDB().Where("node_id = ? AND email = ?",n.Id,email).First(&exists).Error; err!=nil { c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"client not found in this node"}); return }
+ var req nodeClientMutation
+ if err:=c.ShouldBindJSON(&req); err!=nil || req.TotalGB<0 || req.TotalGB>1000000 || req.ExpiryTime<0 { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid quota, expiry or enable value"}); return }
+ payload,err:=json.Marshal(map[string]any{"email":email,"totalGB":req.TotalGB,"expiryTime":req.ExpiryTime,"enable":req.Enable})
+ if err!=nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"could not encode client update"}); return }
+ ctx,cancel:=context.WithTimeout(c.Request.Context(),12*time.Second); defer cancel()
+ if _,err=job.ManageNodeClient(ctx,n,http.MethodPost,"panel/api/clients/update/"+email,payload); err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":err.Error()}); return }
+ c.JSON(http.StatusOK,gin.H{"success":true})
+}
+
+func (a *NodeController) deleteNodeClient(c *gin.Context) {
+ n,ok:=a.loadManageableNode(c); if !ok { return }
+ email:=strings.TrimSpace(c.Param("email"))
+ if !validRemoteEmail(email) { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid username"}); return }
+ var exists model.NodeClientSnapshot
+ if err:=nodeDB().Where("node_id = ? AND email = ?",n.Id,email).First(&exists).Error; err!=nil { c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"client not found in this node"}); return }
+ ctx,cancel:=context.WithTimeout(c.Request.Context(),12*time.Second); defer cancel()
+ if _,err:=job.ManageNodeClient(ctx,n,http.MethodPost,"panel/api/clients/del/"+email,nil); err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":err.Error()}); return }
+ _=nodeDB().Where("node_id = ? AND email = ?",n.Id,email).Delete(&model.NodeClientSnapshot{}).Error
+ c.JSON(http.StatusOK,gin.H{"success":true})
 }
