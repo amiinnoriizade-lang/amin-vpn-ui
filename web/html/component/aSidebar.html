@@ -94,6 +94,13 @@
                     {{ end }}
                     {{ if .perms.superAdmin }}
                     {
+                        key: '{{ .base_path }}panel/nodes',
+                        icon: 'cloud-server',
+                        title: 'Nodes'
+                    },
+                    {{ end }}
+                    {{ if .perms.superAdmin }}
+                    {
                         key: '{{ .base_path }}panel/admins',
                         icon: 'team',
                         title: '{{ i18n "menu.admins"}}'
