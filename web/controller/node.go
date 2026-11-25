@@ -22,23 +22,23 @@ import (
 type NodeController struct { BaseController }
 
 type nodeMutation struct {
- Name string `json:"name"`
- Remark string `json:"remark"`
- Scheme string `json:"scheme"`
- Address string `json:"address"`
- Port int `json:"port"`
- BasePath string `json:"basePath"`
- ApiToken string `json:"apiToken"`
- Enable *bool `json:"enable"`
- AllowPrivateAddress bool `json:"allowPrivateAddress"`
- TlsVerifyMode string `json:"tlsVerifyMode"`
- PinnedCertSha256 string `json:"pinnedCertSha256"`
- InboundSyncMode string `json:"inboundSyncMode"`
- InboundTags string `json:"inboundTags"`
- OutboundTag string `json:"outboundTag"`
- Guid string `json:"guid"`
- ParentGuid string `json:"parentGuid"`
- Transitive bool `json:"transitive"`
+ Name string `form:"name" json:"name"`
+ Remark string `form:"remark" json:"remark"`
+ Scheme string `form:"scheme" json:"scheme"`
+ Address string `form:"address" json:"address"`
+ Port int `form:"port" json:"port"`
+ BasePath string `form:"basePath" json:"basePath"`
+ ApiToken string `form:"apiToken" json:"apiToken"`
+ Enable *bool `form:"enable" json:"enable"`
+ AllowPrivateAddress bool `form:"allowPrivateAddress" json:"allowPrivateAddress"`
+ TlsVerifyMode string `form:"tlsVerifyMode" json:"tlsVerifyMode"`
+ PinnedCertSha256 string `form:"pinnedCertSha256" json:"pinnedCertSha256"`
+ InboundSyncMode string `form:"inboundSyncMode" json:"inboundSyncMode"`
+ InboundTags string `form:"inboundTags" json:"inboundTags"`
+ OutboundTag string `form:"outboundTag" json:"outboundTag"`
+ Guid string `form:"guid" json:"guid"`
+ ParentGuid string `form:"parentGuid" json:"parentGuid"`
+ Transitive bool `form:"transitive" json:"transitive"`
 }
 
 func NewNodeController(g *gin.RouterGroup) *NodeController {
@@ -122,7 +122,7 @@ func (a *NodeController) delete(c *gin.Context) {
 }
 func (a *NodeController) setEnable(c *gin.Context) {
  id,err:=strconv.Atoi(c.Param("id")); if err!=nil || id<1 {c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid node id"});return}
- var req struct { Enable bool `json:"enable"` }
+ var req struct { Enable bool `form:"enable" json:"enable"` }
  if err=c.ShouldBind(&req); err!=nil {c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid JSON"});return}
  result:=nodeDB().Model(&model.Node{}).Where("id = ?",id).Update("enable",req.Enable)
  if result.Error!=nil {c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":result.Error.Error()});return}
