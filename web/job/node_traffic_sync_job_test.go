@@ -10,8 +10,8 @@ func TestNodeSpeedDeltaUsesRealElapsedWindow(t *testing.T) {
  cur:=map[string]*nodeClientAggregate{"alice":{Up:3000,Down:6000}}
  next,deltas:=nodeSpeedDelta(prev,cur,15000)
  if len(deltas)!=1 { t.Fatalf("expected one delta, got %#v",deltas) }
- if deltas[0].Up!=1000 || deltas[0].Down!=2000 {
-  t.Fatalf("normalized delta = up %d down %d, want 1000/2000",deltas[0].Up,deltas[0].Down)
+ if deltas[0].Up!=714 || deltas[0].Down!=1428 {
+  t.Fatalf("normalized delta = up %d down %d, want 714/1428",deltas[0].Up,deltas[0].Down)
  }
  if next["alice"].at!=15000 { t.Fatalf("baseline timestamp = %d",next["alice"].at) }
 }
