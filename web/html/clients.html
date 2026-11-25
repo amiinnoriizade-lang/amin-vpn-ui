@@ -1221,6 +1221,7 @@
         this.nodeClientEditing = true;
         this.nodeClientForm = {
           nodeId:row.nodeId,email:row.email,totalGB:row.total===0?0:Math.floor(row.total/1073741824),
+          originalTotalGB:row.total===0?0:Math.floor(row.total/1073741824),totalBytes:Number(row.total)||0,
           days:row.expiryTime>0?Math.ceil((row.expiryTime-Date.now())/86400000):0,
           originalDays:row.expiryTime>0?Math.ceil((row.expiryTime-Date.now())/86400000):0,
           expiryTime:Number(row.expiryTime)||0,
@@ -1239,7 +1240,7 @@
         if (this.nodeClientEditing) {
           const expiryTime=f.days===f.originalDays?f.expiryTime:(f.days!==0?Date.now()+f.days*86400000:0);
           r=await HttpUtil.post('/panel/api/nodes/clients/update/'+f.nodeId+'/'+encodeURIComponent(f.email),
-            {totalGB:f.totalGB,expiryTime,enable:f.enable});
+            {totalBytes:(f.totalGB===f.originalTotalGB?f.totalBytes:f.totalGB*1073741824),expiryTime,enable:f.enable});
         } else {
           r=await HttpUtil.post('/panel/api/nodes/createClient/'+f.nodeId,
             {inboundId:f.inboundId,email:f.email,totalGB:f.totalGB,days:f.days,flow:f.flow||''});
