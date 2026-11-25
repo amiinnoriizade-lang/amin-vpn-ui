@@ -62,7 +62,6 @@ func probeNode(n model.Node) map[string]any {
  req,err:=http.NewRequestWithContext(ctx,http.MethodGet,u.String(),nil); if err!=nil{return fail(err)}
  req.Header.Set("Accept","application/json")
  if n.ApiToken!="" { req.Header.Set("Authorization","Bearer "+n.ApiToken) }
- if n.TlsVerifyMode=="pinned" { return fail(fmt.Errorf("pinned certificate verification is not implemented yet; use system verification")) }
  transport:=&http.Transport{
   TLSClientConfig:&tls.Config{
    MinVersion:tls.VersionTLS12,
