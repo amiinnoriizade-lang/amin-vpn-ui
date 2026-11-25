@@ -247,6 +247,8 @@ func (a *NodeController) createClient(c *gin.Context) {
   c.JSON(http.StatusBadGateway, gin.H{"success": false, "msg": err.Error()})
   return
  }
+ _ = nodeDB().Where("node_id = ? AND email = ?", id, req.Email).Delete(&model.NodeClientSnapshot{}).Error
+ _ = nodeDB().Create(&model.NodeClientSnapshot{NodeID:id,Email:req.Email,Total:req.TotalGB * (1 << 30),ExpiryTime:expiry,Enable:true,LastSyncAt:time.Now().UnixMilli()}).Error
  c.JSON(http.StatusOK, gin.H{"success": true, "obj": gin.H{
   "nodeId": id, "inboundId": req.InboundID, "inbound": inbound.Remark,
   "protocol": protocol, "email": req.Email, "clientId": clientID,
@@ -344,6 +346,7 @@ func (a *NodeController) updateNodeClient(c *gin.Context) {
  if err!=nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"could not encode client update"}); return }
  ctx,cancel:=context.WithTimeout(c.Request.Context(),12*time.Second); defer cancel()
  if _,err=job.ManageNodeClient(ctx,n,http.MethodPost,"panel/api/clients/update/"+email,payload); err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":err.Error()}); return }
+ if err=nodeDB().Model(&model.NodeClientSnapshot{}).Where("node_id = ? AND email = ?",n.Id,email).Updates(map[string]any{"total":req.TotalGB * (1 << 30),"expiry_time":req.ExpiryTime,"enable":req.Enable,"last_sync_at":time.Now().UnixMilli()}).Error; err!=nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"remote client updated but local snapshot refresh failed: "+err.Error()}); return }
  c.JSON(http.StatusOK,gin.H{"success":true})
 }
 
