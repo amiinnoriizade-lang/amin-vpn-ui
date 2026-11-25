@@ -1190,7 +1190,8 @@
           const r = await HttpUtil.get('/panel/api/nodes/clients');
           if (r && r.success) { this.nodeClients = r.obj || []; this.nodeManagementAvailable = true; }
           else this.nodeManagementAvailable = false;
-        } finally { this.nodeClientsLoading = false; }
+        } catch (e) { this.nodeManagementAvailable = false; }
+        finally { this.nodeClientsLoading = false; }
       },
       async openNodeClientCreate() {
         const r = await HttpUtil.get('/panel/api/nodes/list');
