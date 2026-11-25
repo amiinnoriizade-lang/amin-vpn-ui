@@ -50,6 +50,7 @@ func NewNodeController(g *gin.RouterGroup) *NodeController {
  g.POST("/del/:id", c.delete)
  g.POST("/setEnable/:id", c.setEnable)
  g.POST("/probe/:id", c.probe)
+ g.GET("/snapshot/:id", c.snapshot)
  return c
 }
 

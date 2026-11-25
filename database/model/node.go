@@ -1,7 +1,7 @@
 package model
 
-// Node stores remote node control-plane configuration. Runtime metrics are not
-// persisted here; heartbeat and traffic collectors own their freshness.
+// Node stores remote node control-plane configuration, heartbeat metrics and
+// the latest successful inbound/client synchronization summary.
 type Node struct {
  Id int `json:"id" gorm:"primaryKey;autoIncrement"`
  Name string `json:"name" gorm:"size:128;not null"`
