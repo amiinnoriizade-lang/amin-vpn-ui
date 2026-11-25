@@ -167,6 +167,7 @@ type nodeCreateClientRequest struct {
  Email string `json:"email"`
  TotalGB int64 `json:"totalGB"`
  Months int `json:"months"`
+ Days int `json:"days"`
  Flow string `json:"flow"`
 }
 
@@ -202,7 +203,7 @@ func (a *NodeController) createClient(c *gin.Context) {
    return
   }
  }
- if req.InboundID < 1 || req.TotalGB < 0 || req.TotalGB > 1000000 || req.Months < 0 || req.Months > 120 {
+ if req.InboundID < 1 || req.TotalGB < 0 || req.TotalGB > 1000000 || req.Months < 0 || req.Months > 120 || req.Days < 0 || req.Days > 36500 {
   c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "invalid inbound, volume or validity"})
   return
  }
@@ -226,7 +227,9 @@ func (a *NodeController) createClient(c *gin.Context) {
  }
  clientID := uuid.NewString()
  expiry := int64(0)
- if req.Months > 0 {
+ if req.Days > 0 {
+  expiry = time.Now().AddDate(0, 0, req.Days).UnixMilli()
+ } else if req.Months > 0 {
   expiry = time.Now().AddDate(0, req.Months, 0).UnixMilli()
  }
  payload := map[string]any{
