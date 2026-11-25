@@ -509,6 +509,7 @@
     </a-form-model-item>
     <a-form-model-item label="نام کاربری" required><a-input v-model.trim="nodeClientForm.email" :disabled="nodeClientEditing" placeholder="مثلاً amin-user-01"/></a-form-model-item>
     <a-form-model-item label="حجم (GB)"><a-input-number v-model="nodeClientForm.totalGB" :min="0" :max="1000000" style="width:100%"/><small>صفر = نامحدود</small></a-form-model-item>
+    <a-form-model-item label="Flow" v-if="!nodeClientEditing && managedNodeInbounds.find(x=>x.remoteId===nodeClientForm.inboundId && x.protocol==='vless')"><a-select v-model="nodeClientForm.flow" allow-clear placeholder="بدون Flow"><a-select-option value="xtls-rprx-vision">xtls-rprx-vision</a-select-option></a-select></a-form-model-item>
     <a-form-model-item label="اعتبار (روز)" v-if="!nodeClientEditing"><a-input-number v-model="nodeClientForm.days" :min="0" :max="36500" style="width:100%"/><small>صفر = بدون انقضا</small></a-form-model-item>
     <a-form-model-item label="روز باقی‌مانده" v-else><a-input-number v-model="nodeClientForm.days" :min="0" :max="36500" style="width:100%"/><small>صفر = بدون انقضا</small></a-form-model-item>
     <a-form-model-item label="وضعیت" v-if="nodeClientEditing"><a-switch v-model="nodeClientForm.enable" checked-children="فعال" un-checked-children="خاموش"/></a-form-model-item>
@@ -549,7 +550,7 @@
       nodeClientModalVisible: false,
       nodeClientSaving: false,
       nodeClientEditing: false,
-      nodeClientForm: {nodeId:null,inboundId:null,email:'',totalGB:0,days:30,enable:true},
+      nodeClientForm: {nodeId:null,inboundId:null,email:'',totalGB:0,days:30,enable:true,flow:''},
       nodeClientColumns: [
         {title:'کاربر / نود',key:'user',scopedSlots:{customRender:'nodeUser'},width:240},
         {title:'مصرف / سقف',key:'quota',scopedSlots:{customRender:'nodeQuota'},width:140},
@@ -1196,7 +1197,7 @@
         this.managedNodes = (r.obj||[]).filter(n=>n.enable);
         this.managedNodeInbounds = [];
         this.nodeClientEditing = false;
-        this.nodeClientForm = {nodeId:null,inboundId:null,email:'',totalGB:0,days:30,enable:true};
+        this.nodeClientForm = {nodeId:null,inboundId:null,email:'',totalGB:0,days:30,enable:true,flow:''};
         this.nodeClientModalVisible = true;
         if (this.managedNodes.length) {
           this.nodeClientForm.nodeId = this.managedNodes[0].id;
@@ -1237,7 +1238,7 @@
             {totalGB:f.totalGB,expiryTime,enable:f.enable});
         } else {
           r=await HttpUtil.post('/panel/api/nodes/createClient/'+f.nodeId,
-            {inboundId:f.inboundId,email:f.email,totalGB:f.totalGB,days:f.days,flow:''});
+            {inboundId:f.inboundId,email:f.email,totalGB:f.totalGB,days:f.days,flow:f.flow||''});
         }
         this.nodeClientSaving=false;
         if (r&&r.success) {
