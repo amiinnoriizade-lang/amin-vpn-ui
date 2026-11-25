@@ -96,7 +96,7 @@ func nodeFromMutation(v nodeMutation, old model.Node) model.Node {
 }
 func (a *NodeController) add(c *gin.Context) {
  var v nodeMutation
- if err:=c.ShouldBindJSON(&v); err!=nil {c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid JSON"});return}
+ if err:=c.ShouldBind(&v); err!=nil {c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid JSON"});return}
  if msg:=validNodeMutation(v,true); msg!="" {c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":msg});return}
  n:=nodeFromMutation(v,model.Node{})
  if err:=nodeDB().Create(&n).Error; err!=nil {c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":err.Error()});return}
@@ -105,7 +105,7 @@ func (a *NodeController) add(c *gin.Context) {
 func (a *NodeController) update(c *gin.Context) {
  id,err:=strconv.Atoi(c.Param("id")); if err!=nil || id<1 {c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid node id"});return}
  var v nodeMutation
- if err=c.ShouldBindJSON(&v); err!=nil {c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid JSON"});return}
+ if err=c.ShouldBind(&v); err!=nil {c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid JSON"});return}
  if msg:=validNodeMutation(v,false); msg!="" {c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":msg});return}
  var n model.Node
  if err=nodeDB().First(&n,id).Error; err!=nil {c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"node not found"});return}
@@ -123,7 +123,7 @@ func (a *NodeController) delete(c *gin.Context) {
 func (a *NodeController) setEnable(c *gin.Context) {
  id,err:=strconv.Atoi(c.Param("id")); if err!=nil || id<1 {c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid node id"});return}
  var req struct { Enable bool `json:"enable"` }
- if err=c.ShouldBindJSON(&req); err!=nil {c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid JSON"});return}
+ if err=c.ShouldBind(&req); err!=nil {c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid JSON"});return}
  result:=nodeDB().Model(&model.Node{}).Where("id = ?",id).Update("enable",req.Enable)
  if result.Error!=nil {c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":result.Error.Error()});return}
  if result.RowsAffected==0 {c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"node not found"});return}
