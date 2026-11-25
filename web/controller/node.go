@@ -5,6 +5,10 @@ import (
  "net/http"
  "net/url"
  "time"
+ "encoding/json"
+ "context"
+
+ "github.com/google/uuid"
 
  "github.com/mhsanaei/3x-ui/v2/web/job"
  "github.com/mhsanaei/3x-ui/v2/web/websocket"
@@ -51,6 +55,7 @@ func NewNodeController(g *gin.RouterGroup) *NodeController {
  g.POST("/setEnable/:id", c.setEnable)
  g.POST("/probe/:id", c.probe)
  g.GET("/snapshot/:id", c.snapshot)
+ g.POST("/createClient/:id", c.createClient)
  return c
 }
 
@@ -154,6 +159,98 @@ func (a *NodeController) probe(c *gin.Context) {
 }
 
  
+type nodeCreateClientRequest struct {
+ InboundID int `json:"inboundId"`
+ Email string `json:"email"`
+ TotalGB int64 `json:"totalGB"`
+ Months int `json:"months"`
+ Flow string `json:"flow"`
+}
+
+// createClient provisions a client directly on the selected remote inbound.
+func (a *NodeController) createClient(c *gin.Context) {
+ id, err := strconv.Atoi(c.Param("id"))
+ if err != nil || id < 1 {
+  c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "invalid node id"})
+  return
+ }
+ var n model.Node
+ if err = nodeDB().First(&n, id).Error; err != nil {
+  c.JSON(http.StatusNotFound, gin.H{"success": false, "msg": "node not found"})
+  return
+ }
+ if !n.Enable {
+  c.JSON(http.StatusConflict, gin.H{"success": false, "msg": "node is disabled"})
+  return
+ }
+ var req nodeCreateClientRequest
+ if err = c.ShouldBindJSON(&req); err != nil {
+  c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "invalid request"})
+  return
+ }
+ req.Email = strings.TrimSpace(req.Email)
+ if len(req.Email) < 1 || len(req.Email) > 64 {
+  c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "username must be 1 to 64 characters"})
+  return
+ }
+ for _, r := range req.Email {
+  if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '_' || r == '-') {
+   c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "username may contain only letters, numbers, dot, underscore and dash"})
+   return
+  }
+ }
+ if req.InboundID < 1 || req.TotalGB < 0 || req.TotalGB > 1000000 || req.Months < 0 || req.Months > 120 {
+  c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "invalid inbound, volume or validity"})
+  return
+ }
+ var inbound model.NodeInboundSnapshot
+ if err = nodeDB().Where("node_id = ? AND remote_id = ?", id, req.InboundID).First(&inbound).Error; err != nil {
+  c.JSON(http.StatusNotFound, gin.H{"success": false, "msg": "inbound not found in this node snapshot; wait for synchronization"})
+  return
+ }
+ if !inbound.Enable {
+  c.JSON(http.StatusConflict, gin.H{"success": false, "msg": "selected inbound is disabled"})
+  return
+ }
+ protocol := strings.ToLower(strings.TrimSpace(inbound.Protocol))
+ if protocol != "vless" && protocol != "vmess" && protocol != "trojan" {
+  c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "client creation currently supports VLESS, VMess and Trojan inbounds"})
+  return
+ }
+ if req.Flow != "" && protocol != "vless" {
+  c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "flow is only available for VLESS"})
+  return
+ }
+ clientID := uuid.NewString()
+ expiry := int64(0)
+ if req.Months > 0 {
+  expiry = time.Now().AddDate(0, req.Months, 0).UnixMilli()
+ }
+ payload := map[string]any{
+  "client": map[string]any{
+   "id": clientID, "email": req.Email, "totalGB": req.TotalGB,
+   "expiryTime": expiry, "enable": true, "flow": req.Flow,
+  },
+  "inboundIds": []int{req.InboundID},
+ }
+ body, err := json.Marshal(payload)
+ if err != nil {
+  c.JSON(http.StatusInternalServerError, gin.H{"success": false, "msg": "could not encode client request"})
+  return
+ }
+ ctx, cancel := context.WithTimeout(c.Request.Context(), 12*time.Second)
+ defer cancel()
+ if _, err = job.CreateNodeClient(ctx, n, body); err != nil {
+  c.JSON(http.StatusBadGateway, gin.H{"success": false, "msg": err.Error()})
+  return
+ }
+ c.JSON(http.StatusOK, gin.H{"success": true, "obj": gin.H{
+  "nodeId": id, "inboundId": req.InboundID, "inbound": inbound.Remark,
+  "protocol": protocol, "email": req.Email, "clientId": clientID,
+  "totalGB": req.TotalGB, "expiryTime": expiry,
+ }})
+}
+
 // snapshot returns the last successfully synchronized, credential-free view of a node.
 func (a *NodeController) snapshot(c *gin.Context) {
  id, err := strconv.Atoi(c.Param("id"))
