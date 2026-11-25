@@ -97,20 +97,6 @@ const app = new Vue({
  computed:{selectedClientInbound(){return this.clientInbounds.find(x=>x.remoteId===this.clientForm.inboundId)||null;}},
  methods:{
   async loadNodes(){this.loading=true;const r=await HttpUtil.get('/panel/api/nodes/list');this.loading=false;if(r&&r.success)this.nodes=r.obj||[];},
-  async openCreateClient(n){
-   this.clientNode=n;this.clientInbounds=[];this.createdClient=null;this.clientForm={inboundId:null,email:'',totalGB:0,months:1,flow:''};this.clientModalVisible=true;this.loadingClientInbounds=true;
-   const r=await HttpUtil.get('/panel/api/nodes/snapshot/'+n.id);this.loadingClientInbounds=false;
-   if(r&&r.success){this.clientInbounds=(r.obj&&r.obj.inbounds)||[];const first=this.clientInbounds.find(x=>x.enable);if(first)this.clientForm.inboundId=first.remoteId;}
-   else this.$message.error((r&&r.msg)||'دریافت Inboundهای نود ناموفق بود');
-  },
-  async createRemoteClient(){
-   if(!this.clientNode||!this.clientForm.inboundId||!this.clientForm.email.trim()){this.$message.warning('Inbound و نام کاربری را وارد کنید');return;}
-   this.creatingClient=true;const r=await HttpUtil.post('/panel/api/nodes/createClient/'+this.clientNode.id,this.clientForm);this.creatingClient=false;
-   if(r&&r.success){this.createdClient=r.obj;this.$message.success('کاربر مستقیماً روی نود ساخته شد');}
-   else this.$message.error((r&&r.msg)||'ساخت کاربر ناموفق بود');
-  },
-  copyClientId(){if(this.createdClient&&this.createdClient.clientId){navigator.clipboard.writeText(this.createdClient.clientId).then(()=>this.$message.success('UUID کپی شد')).catch(()=>this.$message.error('کپی خودکار در این مرورگر پشتیبانی نمی‌شود'));}},
-
   statusColor(n){return n.status==='online'?'green':n.status==='offline'?'red':'orange';},
   statusText(n){return n.status==='online'?'آنلاین':n.status==='offline'?'آفلاین':'نامشخص';},
   formatRate(v){v=Number(v||0);if(v<1024)return v+' B/s';if(v<1048576)return (v/1024).toFixed(1)+' KB/s';return (v/1048576).toFixed(2)+' MB/s';},
