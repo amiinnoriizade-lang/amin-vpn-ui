@@ -429,7 +429,7 @@
               </a-card>
             </a-col>
 
-            <a-col :span="24">
+            <a-col :span="24" v-if="nodeManagementAvailable">
               <a-card title="کاربران نودهای سنایی" :bordered="true">
                 <template slot="extra">
                   <a-space>
@@ -545,6 +545,7 @@
       clients: [],
       nodeClients: [],
       nodeClientsLoading: false,
+      nodeManagementAvailable: false,
       managedNodes: [],
       managedNodeInbounds: [],
       nodeClientModalVisible: false,
@@ -1187,8 +1188,8 @@
         this.nodeClientsLoading = true;
         try {
           const r = await HttpUtil.get('/panel/api/nodes/clients');
-          if (r && r.success) this.nodeClients = r.obj || [];
-          else this.$message.error((r && r.msg) || 'دریافت کاربران نودها ناموفق بود');
+          if (r && r.success) { this.nodeClients = r.obj || []; this.nodeManagementAvailable = true; }
+          else this.nodeManagementAvailable = false;
         } finally { this.nodeClientsLoading = false; }
       },
       async openNodeClientCreate() {
