@@ -43,6 +43,7 @@
           </template>
           <template slot="nodeActions" slot-scope="text,n">
             <a-space>
+              <a-tooltip title="ساخت کاربر روی این نود"><a-button size="small" type="primary" icon="user-add" @click="openCreateClient(n)"></a-button></a-tooltip>
               <a-tooltip title="تست اتصال"><a-button size="small" icon="thunderbolt" :loading="probingId===n.id" @click="probe(n)"></a-button></a-tooltip>
               <a-tooltip title="ویرایش"><a-button size="small" icon="edit" @click="openEdit(n)"></a-button></a-tooltip>
               <a-tooltip title="حذف"><a-button size="small" type="danger" icon="delete" @click="removeNode(n)"></a-button></a-tooltip>
@@ -77,6 +78,41 @@
     <a-form-model-item label="شبکه خصوصی"><a-switch v-model="form.allowPrivateAddress"/></a-form-model-item>
   </a-form-model>
 </a-modal>
+<a-modal :visible="clientModalVisible" title="ساخت کاربر روی نود" :confirm-loading="creatingClient"
+  @ok="createRemoteClient" @cancel="clientModalVisible=false" ok-text="ساخت کاربر" cancel-text="بستن" :width="620">
+  <a-alert v-if="clientNode" type="info" show-icon :message="'نود: '+clientNode.name"
+    description="کاربر مستقیماً روی پنل سنایی همین نود ساخته می‌شود؛ در سرور اصلی کاربر محلی ایجاد نمی‌شود." style="margin-bottom:16px"/>
+  <a-spin :spinning="loadingClientInbounds">
+    <a-form-model :model="clientForm" :label-col="{span:7}" :wrapper-col="{span:17}">
+      <a-form-model-item label="Inbound" required>
+        <a-select v-model="clientForm.inboundId" placeholder="انتخاب Inbound">
+          <a-select-option v-for="ib in clientInbounds" :key="ib.remoteId" :value="ib.remoteId" :disabled="!ib.enable">
+            [[ ib.remark || ib.tag || ('Inbound '+ib.remoteId) ]] · [[ ib.protocol ]] · :[[ ib.port ]] [[ ib.enable ? '' : '(غیرفعال)' ]]
+          </a-select-option>
+        </a-select>
+      </a-form-model-item>
+      <a-form-model-item label="نام کاربری" required><a-input v-model="clientForm.email" placeholder="مثلاً amin-user-01"/></a-form-model-item>
+      <a-form-model-item label="حجم (GB)"><a-input-number v-model="clientForm.totalGB" :min="0" :max="1000000" style="width:100%"/><small>صفر = نامحدود</small></a-form-model-item>
+      <a-form-model-item label="اعتبار (ماه)"><a-input-number v-model="clientForm.months" :min="0" :max="120" style="width:100%"/><small>صفر = بدون تاریخ انقضا</small></a-form-model-item>
+      <a-form-model-item v-if="selectedClientInbound && selectedClientInbound.protocol==='vless'" label="Flow">
+        <a-select v-model="clientForm.flow" allow-clear placeholder="بدون Flow">
+          <a-select-option value="xtls-rprx-vision">xtls-rprx-vision</a-select-option>
+        </a-select>
+      </a-form-model-item>
+    </a-form-model>
+  </a-spin>
+  <a-alert v-if="createdClient" type="success" show-icon message="کاربر روی نود ساخته شد" style="margin-top:12px">
+    <template slot="description">
+      <div>نام کاربری: <b>[[ createdClient.email ]]</b></div>
+      <div>پروتکل: [[ createdClient.protocol ]] · Inbound: [[ createdClient.inbound ]]</div>
+      <div>شناسه اتصال (UUID):</div>
+      <a-input :value="createdClient.clientId" readonly/>
+      <div style="margin-top:6px"><a-button size="small" @click="copyClientId">کپی UUID</a-button></div>
+      <div>حجم: [[ createdClient.totalGB===0 ? 'نامحدود' : createdClient.totalGB+' GB' ]]</div>
+      <div>انقضا: [[ createdClient.expiryTime ? new Date(createdClient.expiryTime).toLocaleString() : 'بدون انقضا' ]]</div>
+    </template>
+  </a-alert>
+</a-modal>
 {{ template "page/shell_end" . }}
 {{ template "page/body_scripts" . }}
 {{ template "component/aSidebar" . }}
@@ -93,9 +129,24 @@ const nodeColumns = [
 function emptyNode(){return {name:'',remark:'',scheme:'https',address:'',port:2053,basePath:'',apiToken:'',enable:true,allowPrivateAddress:false,tlsVerifyMode:'system',pinnedCertSha256:'',inboundSyncMode:'all',inboundTags:'',outboundTag:'',guid:'',parentGuid:'',transitive:false};}
 const app = new Vue({
  delimiters:['[[',']]'], mixins:[MediaQueryMixin], el:'#app',
- data:{themeSwitcher,pageTitle:'Nodes',pageClass:'',loading:false,saving:false,probingId:null,nodes:[],columns:nodeColumns,modalVisible:false,editing:false,editingId:null,form:emptyNode()},
+ data:{clientModalVisible:false,clientNode:null,clientInbounds:[],loadingClientInbounds:false,creatingClient:false,createdClient:null,clientForm:{inboundId:null,email:'',totalGB:0,months:1,flow:''},themeSwitcher,pageTitle:'Nodes',pageClass:'',loading:false,saving:false,probingId:null,nodes:[],columns:nodeColumns,modalVisible:false,editing:false,editingId:null,form:emptyNode()},
  methods:{
   async loadNodes(){this.loading=true;const r=await HttpUtil.get('/panel/api/nodes/list');this.loading=false;if(r&&r.success)this.nodes=r.obj||[];},
+  get selectedClientInbound(){return this.clientInbounds.find(x=>x.remoteId===this.clientForm.inboundId)||null;},
+  async openCreateClient(n){
+   this.clientNode=n;this.clientInbounds=[];this.createdClient=null;this.clientForm={inboundId:null,email:'',totalGB:0,months:1,flow:''};this.clientModalVisible=true;this.loadingClientInbounds=true;
+   const r=await HttpUtil.get('/panel/api/nodes/snapshot/'+n.id);this.loadingClientInbounds=false;
+   if(r&&r.success){this.clientInbounds=(r.obj&&r.obj.inbounds)||[];const first=this.clientInbounds.find(x=>x.enable);if(first)this.clientForm.inboundId=first.remoteId;}
+   else this.$message.error((r&&r.msg)||'دریافت Inboundهای نود ناموفق بود');
+  },
+  async createRemoteClient(){
+   if(!this.clientNode||!this.clientForm.inboundId||!this.clientForm.email.trim()){this.$message.warning('Inbound و نام کاربری را وارد کنید');return;}
+   this.creatingClient=true;const r=await HttpUtil.post('/panel/api/nodes/createClient/'+this.clientNode.id,this.clientForm);this.creatingClient=false;
+   if(r&&r.success){this.createdClient=r.obj;this.$message.success('کاربر مستقیماً روی نود ساخته شد');}
+   else this.$message.error((r&&r.msg)||'ساخت کاربر ناموفق بود');
+  },
+  copyClientId(){if(this.createdClient&&this.createdClient.clientId){navigator.clipboard.writeText(this.createdClient.clientId).then(()=>this.$message.success('UUID کپی شد')).catch(()=>this.$message.error('کپی خودکار در این مرورگر پشتیبانی نمی‌شود'));}},
+
   statusColor(n){return n.status==='online'?'green':n.status==='offline'?'red':'orange';},
   statusText(n){return n.status==='online'?'آنلاین':n.status==='offline'?'آفلاین':'نامشخص';},
   formatRate(v){v=Number(v||0);if(v<1024)return v+' B/s';if(v<1048576)return (v/1024).toFixed(1)+' KB/s';return (v/1048576).toFixed(2)+' MB/s';},
