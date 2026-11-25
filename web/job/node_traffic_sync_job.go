@@ -119,7 +119,9 @@ func nodeRequestBody(ctx context.Context, n model.Node, method, endpoint string,
  targetIP := ips[0].String()
  basePath := strings.TrimRight(n.BasePath, "/")
  u := url.URL{Scheme: scheme, Host: net.JoinHostPort(host, strconv.Itoa(n.Port)), Path: basePath + "/" + strings.TrimLeft(endpoint, "/")}
- reqCtx, cancel := context.WithTimeout(ctx, nodeTrafficRequestTimeout)
+ requestTimeout := nodeTrafficRequestTimeout
+ if body != nil { requestTimeout = 12 * time.Second }
+ reqCtx, cancel := context.WithTimeout(ctx, requestTimeout)
  defer cancel()
  var requestBody io.Reader
  if body != nil { requestBody = bytes.NewReader(body) }
@@ -143,10 +145,10 @@ func nodeRequestBody(ctx context.Context, n model.Node, method, endpoint string,
    },
   },
   DialContext: func(c context.Context, network, address string) (net.Conn, error) {
-   return (&net.Dialer{Timeout: nodeTrafficRequestTimeout}).DialContext(c, "tcp", net.JoinHostPort(targetIP, strconv.Itoa(n.Port)))
+   return (&net.Dialer{Timeout: requestTimeout}).DialContext(c, "tcp", net.JoinHostPort(targetIP, strconv.Itoa(n.Port)))
   },
  }
- client := &http.Client{Transport: transport, Timeout: nodeTrafficRequestTimeout,
+ client := &http.Client{Transport: transport, Timeout: requestTimeout,
   CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
  defer transport.CloseIdleConnections()
  resp, err := client.Do(req)
