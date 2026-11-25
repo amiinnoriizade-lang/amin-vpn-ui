@@ -1,0 +1,113 @@
+{{ template "page/head_start" .}}
+{{ template "page/head_end" .}}
+{{ template "page/body_start" .}}
+{{ template "page/shell_start" . }}
+<a-spin :spinning="loading">
+  <a-row :gutter="[16,16]">
+    <a-col :span="24">
+      <a-card>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <a-button type="primary" icon="plus" @click="openAdd">افزودن نود</a-button>
+          <a-button icon="reload" @click="loadNodes">بروزرسانی</a-button>
+          <span style="color:var(--muted)">مدیریت سرورهای متصل به AMIN-UI</span>
+        </div>
+      </a-card>
+    </a-col>
+    <a-col :span="24">
+      <a-card :body-style="{padding:0}">
+        <a-table :columns="columns" :data-source="nodes" :row-key="r => r.id" :pagination="{pageSize:10}"
+          :scroll="{x:1000}" bordered>
+          <template slot="nodeName" slot-scope="text, n">
+            <div style="font-weight:700">[[ n.name ]]</div>
+            <small style="color:var(--muted)">[[ n.address ]]:[[ n.port ]]</small>
+            <div v-if="n.remark" style="font-size:12px;color:var(--muted)">[[ n.remark ]]</div>
+          </template>
+          <template slot="nodeStatus" slot-scope="text,n">
+            <a-tag :color="statusColor(n)">[[ statusText(n) ]]</a-tag>
+            <div v-if="n.latencyMs" style="font-size:11px;color:var(--muted)">[[ n.latencyMs ]] ms</div>
+          </template>
+          <template slot="nodeMetrics" slot-scope="text,n">
+            <div>CPU: [[ Number(n.cpuPct || 0).toFixed(1) ]]%</div>
+            <div>RAM: [[ Number(n.memPct || 0).toFixed(1) ]]%</div>
+          </template>
+          <template slot="nodeVersion" slot-scope="text,n">
+            <div>Panel: [[ n.panelVersion || '—' ]]</div>
+            <div>Xray: [[ n.xrayVersion || '—' ]]</div>
+          </template>
+          <template slot="nodeEnabled" slot-scope="text,n">
+            <a-switch :checked="n.enable" @change="v => setEnabled(n,v)" />
+          </template>
+          <template slot="nodeActions" slot-scope="text,n">
+            <a-space>
+              <a-tooltip title="تست اتصال"><a-button size="small" icon="thunderbolt" :loading="probingId===n.id" @click="probe(n)"></a-button></a-tooltip>
+              <a-tooltip title="ویرایش"><a-button size="small" icon="edit" @click="openEdit(n)"></a-button></a-tooltip>
+              <a-tooltip title="حذف"><a-button size="small" type="danger" icon="delete" @click="removeNode(n)"></a-button></a-tooltip>
+            </a-space>
+          </template>
+        </a-table>
+      </a-card>
+    </a-col>
+    <a-col :span="24" v-if="nodes.length">
+      <a-alert type="info" show-icon message="اطلاعات امنیتی"
+        description="توکن API در پاسخ سرور و جدول نمایش داده نمی‌شود. برای تغییر توکن، هنگام ویرایش مقدار جدید وارد کنید؛ خالی گذاشتن آن، توکن قبلی را حفظ می‌کند."></a-alert>
+    </a-col>
+  </a-row>
+</a-spin>
+<a-modal :visible="modalVisible" :title="editing ? 'ویرایش نود' : 'افزودن نود'" :confirm-loading="saving"
+  @ok="saveNode" @cancel="modalVisible=false" ok-text="ذخیره" cancel-text="انصراف" :width="650">
+  <a-form-model :model="form" :label-col="{span:7}" :wrapper-col="{span:17}">
+    <a-form-model-item label="نام نود" required><a-input v-model="form.name" placeholder="Germany-1"/></a-form-model-item>
+    <a-form-model-item label="توضیحات"><a-input v-model="form.remark"/></a-form-model-item>
+    <a-row :gutter="8">
+      <a-col :span="8"><a-form-model-item label="پروتکل"><a-select v-model="form.scheme"><a-select-option value="https">HTTPS</a-select-option><a-select-option value="http">HTTP</a-select-option></a-select></a-form-model-item></a-col>
+      <a-col :span="10"><a-form-model-item label="آدرس"><a-input v-model="form.address" placeholder="node.example.com"/></a-form-model-item></a-col>
+      <a-col :span="6"><a-form-model-item label="پورت"><a-input-number v-model="form.port" :min="1" :max="65535" style="width:100%"/></a-form-model-item></a-col>
+    </a-row>
+    <a-form-model-item label="Base Path"><a-input v-model="form.basePath" placeholder="/"/></a-form-model-item>
+    <a-form-model-item :label="editing ? 'توکن جدید (اختیاری)' : 'API Token'"><a-input-password v-model="form.apiToken" :placeholder="editing ? 'خالی = حفظ توکن فعلی' : 'توکن دسترسی پنل سنایی'"/></a-form-model-item>
+    <a-form-model-item label="اعتبار TLS"><a-select v-model="form.tlsVerifyMode"><a-select-option value="system">اعتبارسنجی استاندارد</a-select-option><a-select-option value="insecure">بدون اعتبارسنجی (ناامن)</a-select-option><a-select-option value="pinned">گواهی Pin شده</a-select-option></a-select></a-form-model-item>
+    <a-form-model-item v-if="form.tlsVerifyMode==='pinned'" label="SHA-256 Fingerprint"><a-input v-model="form.pinnedCertSha256"/></a-form-model-item>
+    <a-form-model-item label="Inbound Sync"><a-select v-model="form.inboundSyncMode"><a-select-option value="all">همه Inboundها</a-select-option><a-select-option value="tag">بر اساس Tag</a-select-option><a-select-option value="none">غیرفعال</a-select-option></a-select></a-form-model-item>
+    <a-form-model-item v-if="form.inboundSyncMode==='tag'" label="Inbound Tags"><a-input v-model="form.inboundTags" placeholder="tag1,tag2"/></a-form-model-item>
+    <a-form-model-item label="وضعیت"><a-switch v-model="form.enable" checked-children="فعال" un-checked-children="خاموش"/></a-form-model-item>
+    <a-form-model-item label="شبکه خصوصی"><a-switch v-model="form.allowPrivateAddress"/></a-form-model-item>
+  </a-form-model>
+</a-modal>
+{{ template "page/shell_end" . }}
+{{ template "page/body_scripts" . }}
+{{ template "component/aSidebar" . }}
+{{ template "component/aThemeSwitch" . }}
+<script>
+const nodeColumns = [
+ {title:'نود',key:'name',scopedSlots:{customRender:'nodeName'},width:190},
+ {title:'وضعیت',key:'status',scopedSlots:{customRender:'nodeStatus'},width:100,align:'center'},
+ {title:'منابع',key:'metrics',scopedSlots:{customRender:'nodeMetrics'},width:110},
+ {title:'نسخه‌ها',key:'versions',scopedSlots:{customRender:'nodeVersion'},width:150},
+ {title:'فعال',key:'enable',scopedSlots:{customRender:'nodeEnabled'},width:70,align:'center'},
+ {title:'عملیات',key:'actions',scopedSlots:{customRender:'nodeActions'},width:130,align:'center'}
+];
+function emptyNode(){return {name:'',remark:'',scheme:'https',address:'',port:2053,basePath:'',apiToken:'',enable:true,allowPrivateAddress:false,tlsVerifyMode:'system',pinnedCertSha256:'',inboundSyncMode:'all',inboundTags:'',outboundTag:'',guid:'',parentGuid:'',transitive:false};}
+const app = new Vue({
+ delimiters:['[[',']]'], mixins:[MediaQueryMixin], el:'#app',
+ data:{themeSwitcher,pageTitle:'Nodes',pageClass:'',loading:false,saving:false,probingId:null,nodes:[],columns:nodeColumns,modalVisible:false,editing:false,editingId:null,form:emptyNode()},
+ methods:{
+  async loadNodes(){this.loading=true;const r=await HttpUtil.get('/panel/api/nodes/list');this.loading=false;if(r&&r.success)this.nodes=r.obj||[];},
+  statusColor(n){return n.status==='online'?'green':n.status==='offline'?'red':'orange';},
+  statusText(n){return n.status==='online'?'آنلاین':n.status==='offline'?'آفلاین':'نامشخص';},
+  openAdd(){this.editing=false;this.editingId=null;this.form=emptyNode();this.modalVisible=true;},
+  openEdit(n){this.editing=true;this.editingId=n.id;this.form=Object.assign(emptyNode(),n,{apiToken:''});this.modalVisible=true;},
+  async saveNode(){
+   if(!this.form.name.trim()||!this.form.address.trim()||!this.form.port){this.$message.error('نام، آدرس و پورت الزامی است');return;}
+   if(!this.editing&&!this.form.apiToken.trim()){this.$message.error('API Token الزامی است');return;}
+   this.saving=true;const payload=Object.assign({},this.form);const url=this.editing?('/panel/api/nodes/update/'+this.editingId):'/panel/api/nodes/add';
+   const r=await HttpUtil.post(url,payload);this.saving=false;
+   if(r&&r.success){this.$message.success('اطلاعات نود ذخیره شد');this.modalVisible=false;await this.loadNodes();}
+  },
+  async probe(n){this.probingId=n.id;const r=await HttpUtil.post('/panel/api/nodes/probe/'+n.id,{});this.probingId=null;if(r&&r.obj){const i=this.nodes.findIndex(x=>x.id===n.id);if(i>=0)this.$set(this.nodes,i,r.obj);}if(r&&r.success)this.$message.success('اتصال نود برقرار است');else this.$message.warning((r&&r.msg)||'اتصال نود برقرار نشد');},
+  async setEnabled(n,v){const r=await HttpUtil.post('/panel/api/nodes/setEnable/'+n.id,{enable:v});if(r&&r.success){n.enable=v;this.$message.success(v?'نود فعال شد':'نود غیرفعال شد');}else await this.loadNodes();},
+  removeNode(n){this.$confirm({title:'حذف نود',content:'نود «'+n.name+'» حذف شود؟',okText:'حذف',cancelText:'انصراف',class:themeSwitcher.currentTheme,onOk:async()=>{const r=await HttpUtil.post('/panel/api/nodes/del/'+n.id);if(r&&r.success){this.$message.success('نود حذف شد');await this.loadNodes();}}});}
+ },
+ mounted(){this.loadNodes();}
+});
+</script>
+{{ template "page/body_end" . }}
