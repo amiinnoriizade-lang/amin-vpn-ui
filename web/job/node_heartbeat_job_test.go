@@ -40,6 +40,7 @@ func TestProbeNodeReadsStatusAndUsesBearerToken(t *testing.T) {
 				"mem": map[string]any{"current": 256, "total": 1024},
 				"panelVersion": "test-panel",
 				"uptime": 1234,
+                "netIO": map[string]any{"up": 4096, "down": 8192},
 				"xray": map[string]any{"version": "test-xray", "state": "running"},
 			},
 		})
@@ -80,6 +81,9 @@ func TestProbeNodeReadsStatusAndUsesBearerToken(t *testing.T) {
 	if patch["panel_version"] != "test-panel" || patch["xray_version"] != "test-xray" || patch["xray_state"] != "running" {
 		t.Fatalf("unexpected version/state metrics: %#v", patch)
 	}
+	if patch["net_up"] != uint64(4096) || patch["net_down"] != uint64(8192) {
+        t.Fatalf("unexpected network throughput: up=%v down=%v", patch["net_up"], patch["net_down"])
+    }
 	if patch["uptime_secs"] != uint64(1234) {
 		t.Fatalf("unexpected uptime: %v", patch["uptime_secs"])
 	}

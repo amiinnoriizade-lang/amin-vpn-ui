@@ -32,6 +32,8 @@ type Node struct {
  PanelVersion string `json:"panelVersion" gorm:"size:64"`
  XrayVersion string `json:"xrayVersion" gorm:"size:64"`
  XrayState string `json:"xrayState" gorm:"size:24"`
+ NetUp uint64 `json:"netUp" gorm:"not null;default:0"`
+ NetDown uint64 `json:"netDown" gorm:"not null;default:0"`
  CreatedAt int64 `json:"createdAt" gorm:"autoCreateTime:milli"`
  UpdatedAt int64 `json:"updatedAt" gorm:"autoUpdateTime:milli"`
 }

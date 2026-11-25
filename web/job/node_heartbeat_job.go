@@ -37,6 +37,7 @@ type nodeStatusEnvelope struct {
   PanelVersion string `json:"panelVersion"`
   Uptime uint64 `json:"uptime"`
   Xray struct { Version string `json:"version"`; State string `json:"state"` } `json:"xray"`
+  NetIO struct { Up uint64 `json:"up"`; Down uint64 `json:"down"` } `json:"netIO"`
  } `json:"obj"`
 }
 
@@ -45,7 +46,7 @@ func isPublicNodeIP(ip net.IP) bool {
 }
 
 func probeNode(n model.Node) map[string]any {
- patch := map[string]any{"last_heartbeat":time.Now().Unix(),"status":"offline","latency_ms":0,"last_error":"","cpu_pct":0,"mem_pct":0,"uptime_secs":uint64(0),"panel_version":"","xray_version":"","xray_state":""}
+ patch := map[string]any{"last_heartbeat":time.Now().Unix(),"status":"offline","latency_ms":0,"last_error":"","cpu_pct":0,"mem_pct":0,"uptime_secs":uint64(0),"panel_version":"","xray_version":"","xray_state":"","net_up":uint64(0),"net_down":uint64(0)}
  fail := func(err error) map[string]any { patch["last_error"]=err.Error(); return patch }
  if n.Port<1 || n.Port>65535 { return fail(fmt.Errorf("invalid node port")) }
  scheme:=n.Scheme
@@ -90,6 +91,7 @@ func probeNode(n model.Node) map[string]any {
  if envelope.Obj.Mem.Total>0 { patch["mem_pct"]=float64(envelope.Obj.Mem.Current)*100/float64(envelope.Obj.Mem.Total) }
  patch["uptime_secs"]=envelope.Obj.Uptime; patch["panel_version"]=envelope.Obj.PanelVersion
  patch["xray_version"]=envelope.Obj.Xray.Version; patch["xray_state"]=envelope.Obj.Xray.State
+ patch["net_up"]=envelope.Obj.NetIO.Up; patch["net_down"]=envelope.Obj.NetIO.Down
  return patch
 }
 

@@ -29,6 +29,7 @@
           <template slot="nodeMetrics" slot-scope="text,n">
             <div>CPU: [[ Number(n.cpuPct || 0).toFixed(1) ]]%</div>
             <div>RAM: [[ Number(n.memPct || 0).toFixed(1) ]]%</div>
+            <div>↓ [[ formatRate(n.netDown) ]] / ↑ [[ formatRate(n.netUp) ]]</div>
           </template>
           <template slot="nodeVersion" slot-scope="text,n">
             <div>Panel: [[ n.panelVersion || '—' ]]</div>
@@ -94,6 +95,7 @@ const app = new Vue({
   async loadNodes(){this.loading=true;const r=await HttpUtil.get('/panel/api/nodes/list');this.loading=false;if(r&&r.success)this.nodes=r.obj||[];},
   statusColor(n){return n.status==='online'?'green':n.status==='offline'?'red':'orange';},
   statusText(n){return n.status==='online'?'آنلاین':n.status==='offline'?'آفلاین':'نامشخص';},
+  formatRate(v){v=Number(v||0);if(v<1024)return v+' B/s';if(v<1048576)return (v/1024).toFixed(1)+' KB/s';return (v/1048576).toFixed(2)+' MB/s';},
   openAdd(){this.editing=false;this.editingId=null;this.form=emptyNode();this.modalVisible=true;},
   openEdit(n){this.editing=true;this.editingId=n.id;this.form=Object.assign(emptyNode(),n,{apiToken:''});this.modalVisible=true;},
   async saveNode(){
