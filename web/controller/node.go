@@ -4,6 +4,11 @@ import (
  "net"
  "net/http"
  "net/url"
+ "context"
+ "time"
+
+ "github.com/mhsanaei/3x-ui/v2/web/job"
+ "github.com/mhsanaei/3x-ui/v2/web/websocket"
  "strconv"
  "strings"
 
@@ -45,6 +50,7 @@ func NewNodeController(g *gin.RouterGroup) *NodeController {
  g.POST("/update/:id", c.update)
  g.POST("/del/:id", c.delete)
  g.POST("/setEnable/:id", c.setEnable)
+ g.POST("/probe/:id", c.probe)
  return c
 }
 
@@ -122,4 +128,27 @@ func (a *NodeController) setEnable(c *gin.Context) {
  if result.Error!=nil {c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":result.Error.Error()});return}
  if result.RowsAffected==0 {c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"node not found"});return}
  c.JSON(http.StatusOK,gin.H{"success":true})
+}
+
+func (a *NodeController) probe(c *gin.Context) {
+ id,err:=strconv.Atoi(c.Param("id"))
+ if err!=nil || id<1 { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid node id"}); return }
+ var n model.Node
+ if err=nodeDB().First(&n,id).Error; err!=nil { c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"node not found"}); return }
+ if !n.Enable { c.JSON(http.StatusConflict,gin.H{"success":false,"msg":"node is disabled"}); return }
+ result:=make(chan map[string]any,1)
+ go func(){result<-job.ProbeNode(n)}()
+ var patch map[string]any
+ select {
+ case patch=<-result:
+ case <-c.Request.Context().Done(): return
+ case <-time.After(5*time.Second):
+  c.JSON(http.StatusGatewayTimeout,gin.H{"success":false,"msg":"node probe timed out"}); return
+ }
+ if err=nodeDB().Model(&model.Node{}).Where("id = ?",id).Updates(patch).Error; err!=nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":err.Error()}); return }
+ var updated model.Node
+ _=nodeDB().First(&updated,id).Error
+ websocket.BroadcastNodes([]model.Node{updated})
+ ok:=patch["status"]=="online"
+ c.JSON(http.StatusOK,gin.H{"success":ok,"obj":updated,"msg":patch["last_error"]})
 }

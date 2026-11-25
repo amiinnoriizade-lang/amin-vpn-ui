@@ -22,6 +22,7 @@ const (
 	MessageTypeXrayState    MessageType = "xray_state"   // Xray state change
 	MessageTypeOutbounds    MessageType = "outbounds"    // Outbounds list update
 	MessageTypeInvalidate   MessageType = "invalidate"   // Lightweight signal telling frontend to re-fetch data via REST
+ MessageTypeNodes        MessageType = "nodes"   // Lightweight signal telling frontend to re-fetch data via REST
 )
 
 // Message represents a WebSocket message

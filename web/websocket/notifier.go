@@ -66,6 +66,12 @@ func BroadcastOutbounds(outbounds any) {
 	}
 }
 
+// BroadcastNodes broadcasts the current node inventory and runtime status.
+func BroadcastNodes(nodes any) {
+ hub:=GetHub()
+ if hub!=nil { hub.Broadcast(MessageTypeNodes,nodes) }
+}
+
 // BroadcastNotification broadcasts a system notification to all connected clients
 func BroadcastNotification(title, message, level string) {
 	hub := GetHub()

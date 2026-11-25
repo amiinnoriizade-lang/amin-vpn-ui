@@ -2,6 +2,9 @@ package job
 
 import (
  "context"
+ "crypto/sha256"
+ "crypto/subtle"
+ "encoding/hex"
  "crypto/tls"
  "encoding/json"
  "fmt"
@@ -17,6 +20,7 @@ import (
  "github.com/mhsanaei/3x-ui/v2/database"
  "github.com/mhsanaei/3x-ui/v2/database/model"
  "github.com/mhsanaei/3x-ui/v2/logger"
+ "github.com/mhsanaei/3x-ui/v2/web/websocket"
 )
 
 const nodeHeartbeatTimeout = 4 * time.Second
@@ -60,10 +64,22 @@ func probeNode(n model.Node) map[string]any {
  if n.ApiToken!="" { req.Header.Set("Authorization","Bearer "+n.ApiToken) }
  if n.TlsVerifyMode=="pinned" { return fail(fmt.Errorf("pinned certificate verification is not implemented yet; use system verification")) }
  transport:=&http.Transport{
-  TLSClientConfig:&tls.Config{MinVersion:tls.VersionTLS12,InsecureSkipVerify:n.TlsVerifyMode=="insecure"},
+  TLSClientConfig:&tls.Config{
+   MinVersion:tls.VersionTLS12,
+   InsecureSkipVerify:n.TlsVerifyMode=="insecure" || n.TlsVerifyMode=="pinned",
+   VerifyConnection:func(state tls.ConnectionState) error {
+    if n.TlsVerifyMode!="pinned" { return nil }
+    if len(state.PeerCertificates)==0 { return fmt.Errorf("node did not present a TLS certificate") }
+    sum:=sha256.Sum256(state.PeerCertificates[0].Raw)
+    expected,err:=hex.DecodeString(strings.TrimSpace(n.PinnedCertSha256))
+    if err!=nil || len(expected)!=sha256.Size { return fmt.Errorf("invalid pinned certificate SHA-256 fingerprint") }
+    if subtle.ConstantTimeCompare(sum[:],expected)!=1 { return fmt.Errorf("node TLS certificate fingerprint mismatch") }
+    return nil
+   },
+  },
   DialContext:func(ctx context.Context,network,address string)(net.Conn,error){ return (&net.Dialer{Timeout:nodeHeartbeatTimeout}).DialContext(ctx,"tcp",net.JoinHostPort(targetIP,strconv.Itoa(n.Port))) },
  }
- client:=&http.Client{Transport:transport,Timeout:nodeHeartbeatTimeout}; defer transport.CloseIdleConnections()
+ client:=&http.Client{Transport:transport,Timeout:nodeHeartbeatTimeout,CheckRedirect:func(req *http.Request, via []*http.Request) error { return http.ErrUseLastResponse }}; defer transport.CloseIdleConnections()
  started:=time.Now()
  resp,err:=client.Do(req); if err!=nil{return fail(err)}; defer resp.Body.Close()
  patch["latency_ms"]=int(time.Since(started).Milliseconds())
@@ -78,6 +94,8 @@ func probeNode(n model.Node) map[string]any {
  return patch
 }
 
+func ProbeNode(n model.Node) map[string]any { return probeNode(n) }
+
 func (j *NodeHeartbeatJob) Run() {
  if !j.running.TryLock(){return}; defer j.running.Unlock()
  var nodes []model.Node
@@ -90,4 +108,10 @@ func (j *NodeHeartbeatJob) Run() {
   }()
  }
  wg.Wait()
+ if websocket.HasClients() {
+  var updated []model.Node
+  if err:=database.GetDB().Order("id asc").Find(&updated).Error; err==nil {
+   websocket.BroadcastNodes(updated)
+  }
+ }
 }
