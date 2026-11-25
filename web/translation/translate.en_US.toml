@@ -105,6 +105,7 @@
 "xray" = "Xray Configs"
 "core" = "Core Settings"
 "admins" = "Admins"
+"nodes" = "Nodes"
 "resellers" = "Resellers"
 "logout" = "Log Out"
 "link" = "Manage"
