@@ -393,8 +393,9 @@ func (s *Server) startTask() {
 	if err != nil {
 		logger.Warning("start xray failed:", err)
 	}
-	// Probe enabled remote nodes periodically; node traffic collection is a separate job.
+	// Probe enabled remote nodes and synchronize their read-only inbound/client snapshots.
 	s.cron.AddJob("@every 15s", job.NewNodeHeartbeatJob())
+	s.cron.AddJob("@every 5s", job.NewNodeTrafficSyncJob())
 
 	// Check whether xray is running every second
 	s.cron.AddJob("@every 1s", job.NewCheckXrayRunningJob())

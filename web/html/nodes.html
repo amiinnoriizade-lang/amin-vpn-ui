@@ -30,6 +30,9 @@
             <div>CPU: [[ Number(n.cpuPct || 0).toFixed(1) ]]%</div>
             <div>RAM: [[ Number(n.memPct || 0).toFixed(1) ]]%</div>
             <div>↓ [[ formatRate(n.netDown) ]] / ↑ [[ formatRate(n.netUp) ]]</div>
+            <div>Inbounds: [[ n.inboundCount || 0 ]] · Users: [[ n.clientCount || 0 ]]</div>
+            <div v-if="n.lastSyncAt" style="font-size:11px;color:var(--muted)">Sync: [[ new Date(n.lastSyncAt).toLocaleTimeString() ]]</div>
+            <div v-if="n.lastSyncError" style="font-size:11px;color:#cf1322">[[ n.lastSyncError ]]</div>
           </template>
           <template slot="nodeVersion" slot-scope="text,n">
             <div>Panel: [[ n.panelVersion || '—' ]]</div>

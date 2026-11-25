@@ -151,3 +151,32 @@ func (a *NodeController) probe(c *gin.Context) {
  ok:=patch["status"]=="online"
  c.JSON(http.StatusOK,gin.H{"success":ok,"obj":updated,"msg":patch["last_error"]})
 }
+
+ 
+// snapshot returns the last successfully synchronized, credential-free view of a node.
+func (a *NodeController) snapshot(c *gin.Context) {
+ id, err := strconv.Atoi(c.Param("id"))
+ if err != nil || id < 1 {
+  c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "invalid node id"})
+  return
+ }
+ var node model.Node
+ if err = nodeDB().First(&node, id).Error; err != nil {
+  c.JSON(http.StatusNotFound, gin.H{"success": false, "msg": "node not found"})
+  return
+ }
+ var inbounds []model.NodeInboundSnapshot
+ if err = nodeDB().Where("node_id = ?", id).Order("remote_id asc").Find(&inbounds).Error; err != nil {
+  c.JSON(http.StatusInternalServerError, gin.H{"success": false, "msg": err.Error()})
+  return
+ }
+ var clients []model.NodeClientSnapshot
+ if err = nodeDB().Where("node_id = ?", id).Order("email asc").Find(&clients).Error; err != nil {
+  c.JSON(http.StatusInternalServerError, gin.H{"success": false, "msg": err.Error()})
+  return
+ }
+ c.JSON(http.StatusOK, gin.H{"success": true, "obj": gin.H{
+  "nodeId": id, "lastSyncAt": node.LastSyncAt, "lastSyncError": node.LastSyncError,
+  "inbounds": inbounds, "clients": clients,
+ }})
+}
