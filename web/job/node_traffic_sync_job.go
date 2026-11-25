@@ -328,3 +328,10 @@ func (j *NodeTrafficSyncJob) Run() {
   "onlineClients":online,"lastOnlineMap":lastOnline,
  })
 }
+
+
+// ManageNodeClient executes an authenticated client-management request on a node.
+// Endpoint paths are selected by the controller from the documented Sanaei API.
+func ManageNodeClient(ctx context.Context, n model.Node, method, endpoint string, payload []byte) (json.RawMessage, error) {
+ return nodeRequestBody(ctx, n, method, endpoint, payload)
+}
