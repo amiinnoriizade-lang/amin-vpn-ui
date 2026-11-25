@@ -192,7 +192,7 @@ func (a *NodeController) createClient(c *gin.Context) {
   c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "invalid request"})
   return
  }
- req.Email = strings.TrimSpace(req.Email)
+ req.Email = strings.ToLower(strings.TrimSpace(req.Email))
  if len(req.Email) < 1 || len(req.Email) > 64 {
   c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "username must be 1 to 64 characters"})
   return
@@ -339,7 +339,7 @@ func validRemoteEmail(email string) bool {
 
 func (a *NodeController) updateNodeClient(c *gin.Context) {
  n,ok:=a.loadManageableNode(c); if !ok { return }
- email:=strings.TrimSpace(c.Param("email"))
+ email:=strings.ToLower(strings.TrimSpace(c.Param("email")))
  if !validRemoteEmail(email) { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid username"}); return }
  var exists model.NodeClientSnapshot
  if err:=nodeDB().Where("node_id = ? AND email = ?",n.Id,email).First(&exists).Error; err!=nil { c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"client not found in this node"}); return }
