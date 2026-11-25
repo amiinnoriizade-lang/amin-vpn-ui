@@ -355,7 +355,7 @@ func (a *NodeController) updateNodeClient(c *gin.Context) {
   c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"remote client details have an unexpected format"}); return
  }
  if nested,ok:=payloadMap["client"].(map[string]any); ok { payloadMap=nested }
- if strings.TrimSpace(fmt.Sprint(payloadMap["email"]))!=email {
+ if strings.ToLower(strings.TrimSpace(fmt.Sprint(payloadMap["email"])))!=email {
   c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"remote client details did not match the requested username"}); return
  }
  payloadMap["totalGB"]=req.TotalBytes

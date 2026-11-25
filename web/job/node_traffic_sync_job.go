@@ -118,7 +118,16 @@ func nodeRequestBody(ctx context.Context, n model.Node, method, endpoint string,
  }
  targetIP := ips[0].String()
  basePath := strings.TrimRight(n.BasePath, "/")
- u := url.URL{Scheme: scheme, Host: net.JoinHostPort(host, strconv.Itoa(n.Port)), Path: basePath + "/" + strings.TrimLeft(endpoint, "/")}
+ endpointURL, err := url.Parse(endpoint)
+ if err != nil || endpointURL.IsAbs() || endpointURL.Host != "" || strings.HasPrefix(endpointURL.Path, "//") {
+  return nil, fmt.Errorf("invalid remote API endpoint")
+ }
+ u := url.URL{
+  Scheme: scheme,
+  Host: net.JoinHostPort(host, strconv.Itoa(n.Port)),
+  Path: basePath + "/" + strings.TrimLeft(endpointURL.Path, "/"),
+  RawQuery: endpointURL.RawQuery,
+ }
  requestTimeout := nodeTrafficRequestTimeout
  if body != nil { requestTimeout = 12 * time.Second }
  reqCtx, cancel := context.WithTimeout(ctx, requestTimeout)
