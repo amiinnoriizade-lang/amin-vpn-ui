@@ -443,7 +443,7 @@
                     <b>[[ r.email ]]</b><div style="font-size:11px;color:var(--muted)">[[ r.nodeName ]] · [[ r.nodeAddress ]]</div>
                   </template>
                   <template slot="nodeQuota" slot-scope="v,r">
-                    [[ r.total===0 ? 'نامحدود' : sizeFormat(r.total) ]]
+                    [[ sizeFormat((r.up||0)+(r.down||0)) ]] / [[ r.total===0 ? 'نامحدود' : sizeFormat(r.total) ]]
                   </template>
                   <template slot="nodeExpiry" slot-scope="v,r">
                     [[ r.expiryTime ? new Date(r.expiryTime).toLocaleDateString() : 'بدون انقضا' ]]
@@ -1237,7 +1237,7 @@
             {totalGB:f.totalGB,expiryTime,enable:f.enable});
         } else {
           r=await HttpUtil.post('/panel/api/nodes/createClient/'+f.nodeId,
-            {inboundId:f.inboundId,email:f.email,totalGB:f.totalGB,months:0,flow:''});
+            {inboundId:f.inboundId,email:f.email,totalGB:f.totalGB,days:f.days,flow:''});
         }
         this.nodeClientSaving=false;
         if (r&&r.success) {
