@@ -231,7 +231,7 @@ func (a *NodeController) createClient(c *gin.Context) {
  }
  payload := map[string]any{
   "client": map[string]any{
-   "id": clientID, "email": req.Email, "totalGB": req.TotalGB,
+   "id": clientID, "email": req.Email, "totalGB": req.TotalGB * (1 << 30),
    "expiryTime": expiry, "enable": true, "flow": req.Flow,
   },
   "inboundIds": []int{req.InboundID},
@@ -250,7 +250,7 @@ func (a *NodeController) createClient(c *gin.Context) {
  c.JSON(http.StatusOK, gin.H{"success": true, "obj": gin.H{
   "nodeId": id, "inboundId": req.InboundID, "inbound": inbound.Remark,
   "protocol": protocol, "email": req.Email, "clientId": clientID,
-  "totalGB": req.TotalGB, "expiryTime": expiry,
+  "totalGB": req.TotalGB * (1 << 30), "expiryTime": expiry,
  }})
 }
 
@@ -340,7 +340,7 @@ func (a *NodeController) updateNodeClient(c *gin.Context) {
  if err:=nodeDB().Where("node_id = ? AND email = ?",n.Id,email).First(&exists).Error; err!=nil { c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"client not found in this node"}); return }
  var req nodeClientMutation
  if err:=c.ShouldBindJSON(&req); err!=nil || req.TotalGB<0 || req.TotalGB>1000000 || req.ExpiryTime<0 { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid quota, expiry or enable value"}); return }
- payload,err:=json.Marshal(map[string]any{"email":email,"totalGB":req.TotalGB,"expiryTime":req.ExpiryTime,"enable":req.Enable})
+ payload,err:=json.Marshal(map[string]any{"email":email,"totalGB":req.TotalGB * (1 << 30),"expiryTime":req.ExpiryTime,"enable":req.Enable})
  if err!=nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"could not encode client update"}); return }
  ctx,cancel:=context.WithTimeout(c.Request.Context(),12*time.Second); defer cancel()
  if _,err=job.ManageNodeClient(ctx,n,http.MethodPost,"panel/api/clients/update/"+email,payload); err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":err.Error()}); return }
