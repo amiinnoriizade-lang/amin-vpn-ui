@@ -428,6 +428,40 @@
                 </a-table>
               </a-card>
             </a-col>
+
+            <a-col :span="24">
+              <a-card title="کاربران نودهای سنایی" :bordered="true">
+                <template slot="extra">
+                  <a-space>
+                    <a-button size="small" icon="reload" @click="loadNodeClients">بروزرسانی</a-button>
+                    <a-button size="small" type="primary" icon="user-add" @click="openNodeClientCreate">افزودن کاربر نود</a-button>
+                  </a-space>
+                </template>
+                <a-table :data-source="nodeClients" :columns="nodeClientColumns" :row-key="r => r.nodeId + ':' + r.email"
+                  :pagination="{pageSize:10}" :loading="nodeClientsLoading" :scroll="{x:850}" size="small" bordered>
+                  <template slot="nodeUser" slot-scope="v,r">
+                    <b>[[ r.email ]]</b><div style="font-size:11px;color:var(--muted)">[[ r.nodeName ]] · [[ r.nodeAddress ]]</div>
+                  </template>
+                  <template slot="nodeQuota" slot-scope="v,r">
+                    [[ r.total===0 ? 'نامحدود' : sizeFormat(r.total) ]]
+                  </template>
+                  <template slot="nodeExpiry" slot-scope="v,r">
+                    [[ r.expiryTime ? new Date(r.expiryTime).toLocaleDateString() : 'بدون انقضا' ]]
+                  </template>
+                  <template slot="nodeState" slot-scope="v,r">
+                    <a-tag :color="r.enable?'green':'red'">[[ r.enable?'فعال':'غیرفعال' ]]</a-tag>
+                    <a-tag :color="r.online?'blue':'default'">[[ r.online?'آنلاین':'آفلاین' ]]</a-tag>
+                  </template>
+                  <template slot="nodeActions" slot-scope="v,r">
+                    <a-space>
+                      <a-button size="small" icon="edit" @click="openNodeClientEdit(r)">ویرایش</a-button>
+                      <a-button size="small" type="danger" icon="delete" @click="deleteNodeClient(r)">حذف</a-button>
+                    </a-space>
+                  </template>
+                </a-table>
+                <a-alert type="info" show-icon message="این فهرست مستقیماً کاربران ثبت‌شده روی نودهای متصل را نشان می‌دهد؛ عملیات این بخش روی پنل سنایی همان نود اجرا می‌شود."/>
+              </a-card>
+            </a-col>
           </a-row>
         </transition>
       </a-spin>
@@ -457,6 +491,29 @@
 {{template "modals/awgConfigModal"}}
 {{template "modals/greConfigModal"}}
 {{template "modals/sshConfigModal"}}
+
+<a-modal :visible="nodeClientModalVisible" :title="nodeClientEditing?'ویرایش کاربر نود':'ساخت کاربر روی نود'" :confirm-loading="nodeClientSaving"
+  @ok="saveNodeClient" @cancel="nodeClientModalVisible=false" ok-text="ذخیره" cancel-text="انصراف" :width="620">
+  <a-form-model :model="nodeClientForm" :label-col="{span:7}" :wrapper-col="{span:17}">
+    <a-form-model-item label="نود" required v-if="!nodeClientEditing">
+      <a-select v-model="nodeClientForm.nodeId" placeholder="انتخاب نود" @change="loadSelectedNodeInbounds">
+        <a-select-option v-for="n in managedNodes" :key="n.id" :value="n.id">[[ n.name ]] · [[ n.address ]]</a-select-option>
+      </a-select>
+    </a-form-model-item>
+    <a-form-model-item label="Inbound" required v-if="!nodeClientEditing">
+      <a-select v-model="nodeClientForm.inboundId" placeholder="انتخاب Inbound">
+        <a-select-option v-for="ib in managedNodeInbounds" :key="ib.remoteId" :value="ib.remoteId" :disabled="!ib.enable">
+          [[ ib.remark||ib.tag||('Inbound '+ib.remoteId) ]] · [[ ib.protocol ]] · :[[ ib.port ]]
+        </a-select-option>
+      </a-select>
+    </a-form-model-item>
+    <a-form-model-item label="نام کاربری" required><a-input v-model.trim="nodeClientForm.email" :disabled="nodeClientEditing" placeholder="مثلاً amin-user-01"/></a-form-model-item>
+    <a-form-model-item label="حجم (GB)"><a-input-number v-model="nodeClientForm.totalGB" :min="0" :max="1000000" style="width:100%"/><small>صفر = نامحدود</small></a-form-model-item>
+    <a-form-model-item label="اعتبار (روز)" v-if="!nodeClientEditing"><a-input-number v-model="nodeClientForm.days" :min="0" :max="36500" style="width:100%"/><small>صفر = بدون انقضا</small></a-form-model-item>
+    <a-form-model-item label="روز باقی‌مانده" v-else><a-input-number v-model="nodeClientForm.days" :min="0" :max="36500" style="width:100%"/><small>صفر = بدون انقضا</small></a-form-model-item>
+    <a-form-model-item label="وضعیت" v-if="nodeClientEditing"><a-switch v-model="nodeClientForm.enable" checked-children="فعال" un-checked-children="خاموش"/></a-form-model-item>
+  </a-form-model>
+</a-modal>
 {{template "modals/clientMembershipModal" .}}
 
 <script>
@@ -485,6 +542,21 @@
       // are needed: the rows carry the account-level totals the server computed,
       // the inbounds carry the per-protocol client objects every action works on.
       clients: [],
+      nodeClients: [],
+      nodeClientsLoading: false,
+      managedNodes: [],
+      managedNodeInbounds: [],
+      nodeClientModalVisible: false,
+      nodeClientSaving: false,
+      nodeClientEditing: false,
+      nodeClientForm: {nodeId:null,inboundId:null,email:'',totalGB:0,days:30,enable:true},
+      nodeClientColumns: [
+        {title:'کاربر / نود',key:'user',scopedSlots:{customRender:'nodeUser'},width:240},
+        {title:'مصرف / سقف',key:'quota',scopedSlots:{customRender:'nodeQuota'},width:140},
+        {title:'انقضا',key:'expiry',scopedSlots:{customRender:'nodeExpiry'},width:130},
+        {title:'وضعیت',key:'state',scopedSlots:{customRender:'nodeState'},width:130},
+        {title:'عملیات',key:'actions',scopedSlots:{customRender:'nodeActions'},width:160},
+      ],
       dbInbounds: [],
       inbounds: [],
       assignable: [],
@@ -1110,6 +1182,80 @@
         if (ok) this.$message.success('{{ i18n "copied" }}');
       },
 
+      async loadNodeClients() {
+        this.nodeClientsLoading = true;
+        try {
+          const r = await HttpUtil.get('/panel/api/nodes/clients');
+          if (r && r.success) this.nodeClients = r.obj || [];
+          else this.$message.error((r && r.msg) || 'دریافت کاربران نودها ناموفق بود');
+        } finally { this.nodeClientsLoading = false; }
+      },
+      async openNodeClientCreate() {
+        const r = await HttpUtil.get('/panel/api/nodes/list');
+        if (!r || !r.success) { this.$message.error((r&&r.msg)||'دریافت نودها ناموفق بود'); return; }
+        this.managedNodes = (r.obj||[]).filter(n=>n.enable);
+        this.managedNodeInbounds = [];
+        this.nodeClientEditing = false;
+        this.nodeClientForm = {nodeId:null,inboundId:null,email:'',totalGB:0,days:30,enable:true};
+        this.nodeClientModalVisible = true;
+        if (this.managedNodes.length) {
+          this.nodeClientForm.nodeId = this.managedNodes[0].id;
+          await this.loadSelectedNodeInbounds();
+        }
+      },
+      async loadSelectedNodeInbounds() {
+        const id = this.nodeClientForm.nodeId;
+        this.managedNodeInbounds = [];
+        if (!id) return;
+        const r = await HttpUtil.get('/panel/api/nodes/snapshot/'+id);
+        if (r&&r.success) {
+          this.managedNodeInbounds = (r.obj&&r.obj.inbounds)||[];
+          const first=this.managedNodeInbounds.find(x=>x.enable);
+          this.nodeClientForm.inboundId=first?first.remoteId:null;
+        } else this.$message.error((r&&r.msg)||'دریافت Inboundها ناموفق بود');
+      },
+      openNodeClientEdit(row) {
+        this.nodeClientEditing = true;
+        this.nodeClientForm = {
+          nodeId:row.nodeId,email:row.email,totalGB:row.total===0?0:Math.floor(row.total/1073741824),
+          days:row.expiryTime>0?Math.max(0,Math.ceil((row.expiryTime-Date.now())/86400000)):0,
+          enable:!!row.enable,
+        };
+        this.nodeClientModalVisible = true;
+      },
+      async saveNodeClient() {
+        const f=this.nodeClientForm;
+        if (!f.email || (!this.nodeClientEditing && (!f.nodeId || !f.inboundId))) {
+          this.$message.warning('نود، Inbound و نام کاربری را کامل کنید'); return;
+        }
+        if (this.nodeClientEditing && f.days>0 && f.days<1) return;
+        this.nodeClientSaving=true;
+        let r;
+        if (this.nodeClientEditing) {
+          const expiryTime=f.days>0?Date.now()+f.days*86400000:0;
+          r=await HttpUtil.post('/panel/api/nodes/clients/update/'+f.nodeId+'/'+encodeURIComponent(f.email),
+            {totalGB:f.totalGB,expiryTime,enable:f.enable});
+        } else {
+          r=await HttpUtil.post('/panel/api/nodes/createClient/'+f.nodeId,
+            {inboundId:f.inboundId,email:f.email,totalGB:f.totalGB,months:0,flow:''});
+        }
+        this.nodeClientSaving=false;
+        if (r&&r.success) {
+          this.$message.success(this.nodeClientEditing?'کاربر نود ویرایش شد':'کاربر روی نود ساخته شد');
+          this.nodeClientModalVisible=false;
+          await this.loadNodeClients();
+        } else this.$message.error((r&&r.msg)||'عملیات روی نود ناموفق بود');
+      },
+      deleteNodeClient(row) {
+        this.$confirm({title:'حذف کاربر نود',content:'کاربر '+row.email+' از نود '+row.nodeName+' حذف شود؟',
+          okText:'حذف',cancelText:'انصراف',okType:'danger',class:themeSwitcher.currentTheme,
+          onOk:async()=>{
+            const r=await HttpUtil.post('/panel/api/nodes/clients/delete/'+row.nodeId+'/'+encodeURIComponent(row.email),{});
+            if(r&&r.success){this.$message.success('کاربر از نود حذف شد');await this.loadNodeClients();}
+            else this.$message.error((r&&r.msg)||'حذف کاربر ناموفق بود');
+          }});
+      },
+
       // --- selection --------------------------------------------------------
       // The mixin resolves bulk targets from selClients, which is keyed per
       // (inbound, email). An account row stands for every inbound serving it, so
@@ -1411,6 +1557,7 @@
     async mounted() {
       await this.getDefaultSettings();
       await this.reload(true);
+      await this.loadNodeClients();
       // Keep WebSocket deltas as the primary source; this API sampler is a
       // fallback from cumulative per-account counters, not a replacement.
       await this.sampleClientSpeeds();
