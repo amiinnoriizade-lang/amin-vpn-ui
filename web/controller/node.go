@@ -289,7 +289,7 @@ func (a *NodeController) snapshot(c *gin.Context) {
 
 
 type nodeClientMutation struct {
- TotalGB int64 `json:"totalGB"`
+ TotalBytes int64 `json:"totalBytes"`
  ExpiryTime int64 `json:"expiryTime"`
  Enable bool `json:"enable"`
 }
@@ -344,12 +344,12 @@ func (a *NodeController) updateNodeClient(c *gin.Context) {
  var exists model.NodeClientSnapshot
  if err:=nodeDB().Where("node_id = ? AND email = ?",n.Id,email).First(&exists).Error; err!=nil { c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"client not found in this node"}); return }
  var req nodeClientMutation
- if err:=c.ShouldBindJSON(&req); err!=nil || req.TotalGB<0 || req.TotalGB>1000000 || req.ExpiryTime<0 { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid quota, expiry or enable value"}); return }
- payload,err:=json.Marshal(map[string]any{"email":email,"totalGB":req.TotalGB * (1 << 30),"expiryTime":req.ExpiryTime,"enable":req.Enable})
+ if err:=c.ShouldBindJSON(&req); err!=nil || req.TotalBytes<0 || req.TotalBytes>1000000*(1<<30) { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid quota, expiry or enable value"}); return }
+ payload,err:=json.Marshal(map[string]any{"email":email,"totalGB":req.TotalBytes,"expiryTime":req.ExpiryTime,"enable":req.Enable})
  if err!=nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"could not encode client update"}); return }
  ctx,cancel:=context.WithTimeout(c.Request.Context(),12*time.Second); defer cancel()
  if _,err=job.ManageNodeClient(ctx,n,http.MethodPost,"panel/api/clients/update/"+email,payload); err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":err.Error()}); return }
- if err=nodeDB().Model(&model.NodeClientSnapshot{}).Where("node_id = ? AND email = ?",n.Id,email).Updates(map[string]any{"total":req.TotalGB * (1 << 30),"expiry_time":req.ExpiryTime,"enable":req.Enable,"last_sync_at":time.Now().UnixMilli()}).Error; err!=nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"remote client updated but local snapshot refresh failed: "+err.Error()}); return }
+ if err=nodeDB().Model(&model.NodeClientSnapshot{}).Where("node_id = ? AND email = ?",n.Id,email).Updates(map[string]any{"total":req.TotalBytes,"expiry_time":req.ExpiryTime,"enable":req.Enable,"last_sync_at":time.Now().UnixMilli()}).Error; err!=nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"remote client updated but local snapshot refresh failed: "+err.Error()}); return }
  c.JSON(http.StatusOK,gin.H{"success":true})
 }
 
