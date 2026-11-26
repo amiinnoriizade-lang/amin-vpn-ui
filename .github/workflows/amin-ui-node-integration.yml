@@ -1,0 +1,42 @@
+name: AMIN-UI native node integration CI
+
+on:
+  push:
+    branches:
+      - feat/amin-native-node-api
+    paths:
+      - "database/model/node*.go"
+      - "web/controller/node.go"
+      - "web/job/node*.go"
+      - "web/html/nodes.html"
+      - "config/version"
+      - ".github/workflows/amin-ui-node-integration.yml"
+  pull_request:
+    paths:
+      - "database/model/node*.go"
+      - "web/controller/node.go"
+      - "web/job/node*.go"
+      - "web/html/nodes.html"
+      - "config/version"
+      - ".github/workflows/amin-ui-node-integration.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    name: Build and test native node integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Compile all packages
+        run: go build ./...
+      - name: Test node integration packages
+        run: go test -race ./web/job ./web/controller ./database/model
