@@ -44,6 +44,7 @@
           <template slot="nodeActions" slot-scope="text,n">
             <a-space>
               <a-tooltip title="تست اتصال"><a-button size="small" icon="thunderbolt" :loading="probingId===n.id" @click="probe(n)"></a-button></a-tooltip>
+              <a-tooltip title="نمایش Inboundها و کاربران"><a-button size="small" icon="unordered-list" @click="showNode(n)"></a-button></a-tooltip>
               <a-tooltip title="ویرایش"><a-button size="small" icon="edit" @click="openEdit(n)"></a-button></a-tooltip>
               <a-tooltip title="حذف"><a-button size="small" type="danger" icon="delete" @click="removeNode(n)"></a-button></a-tooltip>
             </a-space>
@@ -55,11 +56,55 @@
       <a-alert type="info" show-icon message="اطلاعات امنیتی"
         description="توکن API در پاسخ سرور و جدول نمایش داده نمی‌شود. برای تغییر توکن، هنگام ویرایش مقدار جدید وارد کنید؛ خالی گذاشتن آن، توکن قبلی را حفظ می‌کند."></a-alert>
     </a-col>
+    <a-col :span="24" v-if="selectedNode">
+      <a-card :title="'Inboundهای نود: '+selectedNode.name">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+          <a-button icon="reload" :loading="snapshotLoading" @click="showNode(selectedNode)">بروزرسانی Inboundها</a-button>
+          <a-tag color="blue">[[ (nodeSnapshot.inbounds || []).length ]] Inbound</a-tag>
+          <a-tag color="green">[[ (nodeSnapshot.clients || []).length ]] کاربر</a-tag>
+        </div>
+        <a-alert v-if="selectedNode.agentMode" type="info" show-icon
+          message="محدودیت نسخه فعلی Agent"
+          description="در نسخه 0.2.1 ساخت و حذف کاربر فعال است؛ محدودیت حجم، تاریخ انقضا، ویرایش کاربر و ساخت لینک اتصال هنوز پشتیبانی نمی‌شوند." style="margin-bottom:12px"/>
+        <a-table :columns="inboundColumns" :data-source="nodeSnapshot.inbounds || []" :row-key="r => r.id" :pagination="false" :scroll="{x:700}" size="small">
+          <template slot="inboundTag" slot-scope="text,ib">
+            <div style="font-weight:700">[[ ib.tag || ib.remoteTag || ib.remark ]]</div>
+            <small style="color:var(--muted)">[[ ib.listen || '0.0.0.0' ]]:[[ ib.port ]]</small>
+          </template>
+          <template slot="inboundActions" slot-scope="text,ib">
+            <a-button size="small" type="primary" icon="user-add" @click="openCreateClient(ib)">ساخت کاربر</a-button>
+          </template>
+        </a-table>
+        <a-divider>کاربران این نود</a-divider>
+        <a-table :columns="nodeClientColumns" :data-source="nodeSnapshot.clients || []" :row-key="r => r.email" :pagination="{pageSize:10}" size="small">
+          <template slot="clientEnabled" slot-scope="text,cl">
+            <a-tag :color="cl.enable ? 'green' : 'red'">[[ cl.enable ? 'فعال' : 'غیرفعال' ]]</a-tag>
+          </template>
+          <template slot="clientActions" slot-scope="text,cl">
+            <a-popconfirm title="این کاربر از تمام Inboundهای نود حذف شود؟" ok-text="حذف" cancel-text="انصراف" @confirm="deleteNodeClient(cl)">
+              <a-button size="small" type="danger" icon="delete">حذف</a-button>
+            </a-popconfirm>
+          </template>
+        </a-table>
+      </a-card>
+    </a-col>
   </a-row>
 </a-spin>
+<a-modal :visible="clientModalVisible" title="ساخت کاربر روی نود" :confirm-loading="clientSaving"
+  @ok="createNodeClient" @cancel="clientModalVisible=false" ok-text="ساخت کاربر" cancel-text="انصراف">
+  <a-form-model :model="clientForm" :label-col="{span:6}" :wrapper-col="{span:18}">
+    <a-form-model-item label="Inbound">[[ clientForm.inboundLabel ]]</a-form-model-item>
+    <a-form-model-item label="نام کاربری" required><a-input v-model="clientForm.email" placeholder="amin-user-01"/></a-form-model-item>
+    <a-form-model-item label="Flow" v-if="clientForm.protocol==='vless'"><a-select v-model="clientForm.flow" allow-clear><a-select-option value="">بدون Flow</a-select-option><a-select-option value="xtls-rprx-vision">xtls-rprx-vision</a-select-option></a-select></a-form-model-item>
+    <a-alert type="info" show-icon message="شناسه اتصال به‌صورت خودکار ساخته می‌شود."/>
+  </a-form-model>
+</a-modal>
 <a-modal :visible="modalVisible" :title="editing ? 'ویرایش نود' : 'افزودن نود'" :confirm-loading="saving"
   @ok="saveNode" @cancel="modalVisible=false" ok-text="ذخیره" cancel-text="انصراف" :width="650">
   <a-form-model :model="form" :label-col="{span:7}" :wrapper-col="{span:17}">
+    <a-form-model-item label="نوع نود"><a-switch v-model="form.agentMode" checked-children="AMIN Agent" un-checked-children="Sanaei" @change="toggleNodeType"/></a-form-model-item>
+    <a-alert v-if="form.agentMode" type="warning" show-icon message="ارتباط امن با AMIN Node Agent"
+      description="Agent فعلی فقط روی 127.0.0.1:8787 گوش می‌دهد. برای اتصال پنلِ جداگانه، ابتدا یک تونل خصوصی مدیریت تا پورت محلی پنل بسازید؛ پورت Agent را مستقیماً روی اینترنت باز نکنید." style="margin-bottom:12px"/>
     <a-form-model-item label="نام نود" required><a-input v-model="form.name" placeholder="Germany-1"/></a-form-model-item>
     <a-form-model-item label="توضیحات"><a-input v-model="form.remark"/></a-form-model-item>
     <a-row :gutter="8">
@@ -68,7 +113,7 @@
       <a-col :span="6"><a-form-model-item label="پورت"><a-input-number v-model="form.port" :min="1" :max="65535" style="width:100%"/></a-form-model-item></a-col>
     </a-row>
     <a-form-model-item label="Base Path"><a-input v-model="form.basePath" placeholder="/"/></a-form-model-item>
-    <a-form-model-item :label="editing ? 'توکن جدید (اختیاری)' : 'API Token'"><a-input-password v-model="form.apiToken" :placeholder="editing ? 'خالی = حفظ توکن فعلی' : 'توکن دسترسی پنل سنایی'"/></a-form-model-item>
+    <a-form-model-item :label="editing ? 'توکن جدید (اختیاری)' : 'API Token'"><a-input-password v-model="form.apiToken" :placeholder="editing ? 'خالی = حفظ توکن فعلی' : (form.agentMode ? 'AMIN_NODE_TOKEN' : 'توکن دسترسی پنل سنایی')"/></a-form-model-item>
     <a-form-model-item label="اعتبار TLS"><a-select v-model="form.tlsVerifyMode"><a-select-option value="system">اعتبارسنجی استاندارد</a-select-option><a-select-option value="insecure">بدون اعتبارسنجی (ناامن)</a-select-option><a-select-option value="pinned">گواهی Pin شده</a-select-option></a-select></a-form-model-item>
     <a-form-model-item v-if="form.tlsVerifyMode==='pinned'" label="SHA-256 Fingerprint"><a-input v-model="form.pinnedCertSha256"/></a-form-model-item>
     <a-form-model-item label="Inbound Sync"><a-select v-model="form.inboundSyncMode"><a-select-option value="all">همه Inboundها</a-select-option><a-select-option value="tag">بر اساس Tag</a-select-option><a-select-option value="none">غیرفعال</a-select-option></a-select></a-form-model-item>
@@ -82,24 +127,38 @@
 {{ template "component/aSidebar" . }}
 {{ template "component/aThemeSwitch" . }}
 <script>
+const inboundColumns = [
+ {title:'Inbound / Tag',key:'tag',scopedSlots:{customRender:'inboundTag'},width:230},
+ {title:'Protocol',dataIndex:'protocol',width:100},
+ {title:'Port',dataIndex:'port',width:80},
+ {title:'کاربران',dataIndex:'clientCount',width:80},
+ {title:'عملیات',key:'actions',scopedSlots:{customRender:'inboundActions'},width:130}
+];
+const nodeClientColumns = [
+ {title:'نام کاربری',dataIndex:'email',key:'email'},
+ {title:'وضعیت',key:'enable',scopedSlots:{customRender:'clientEnabled'},width:100},
+ {title:'حجم مصرفی',customRender:(v,r)=>((Number(r.up||0)+Number(r.down||0))/1073741824).toFixed(3)+' GB',width:120},
+ {title:'عملیات',key:'actions',scopedSlots:{customRender:'clientActions'},width:100}
+];
 const nodeColumns = [
  {title:'نود',key:'name',scopedSlots:{customRender:'nodeName'},width:190},
  {title:'وضعیت',key:'status',scopedSlots:{customRender:'nodeStatus'},width:100,align:'center'},
  {title:'منابع',key:'metrics',scopedSlots:{customRender:'nodeMetrics'},width:110},
  {title:'نسخه‌ها',key:'versions',scopedSlots:{customRender:'nodeVersion'},width:150},
  {title:'فعال',key:'enable',scopedSlots:{customRender:'nodeEnabled'},width:70,align:'center'},
- {title:'عملیات',key:'actions',scopedSlots:{customRender:'nodeActions'},width:130,align:'center'}
+ {title:'عملیات',key:'actions',scopedSlots:{customRender:'nodeActions'},width:170,align:'center'}
 ];
-function emptyNode(){return {name:'',remark:'',scheme:'https',address:'',port:2053,basePath:'',apiToken:'',enable:true,allowPrivateAddress:false,tlsVerifyMode:'system',pinnedCertSha256:'',inboundSyncMode:'all',inboundTags:'',outboundTag:'',guid:'',parentGuid:'',transitive:false};}
+function emptyNode(){return {agentMode:false,name:'',remark:'',scheme:'https',address:'',port:2053,basePath:'',apiToken:'',enable:true,allowPrivateAddress:false,tlsVerifyMode:'system',pinnedCertSha256:'',inboundSyncMode:'all',inboundTags:'',outboundTag:'',guid:'',parentGuid:'',transitive:false};}
 const app = new Vue({
  delimiters:['[[',']]'], mixins:[MediaQueryMixin], el:'#app',
- data:{themeSwitcher,pageTitle:'Nodes',pageClass:'',loading:false,saving:false,probingId:null,nodes:[],columns:nodeColumns,modalVisible:false,editing:false,editingId:null,form:emptyNode()},
- computed:{selectedClientInbound(){return this.clientInbounds.find(x=>x.remoteId===this.clientForm.inboundId)||null;}},
+ data:{themeSwitcher,pageTitle:'Nodes',pageClass:'',loading:false,saving:false,probingId:null,nodes:[],columns:nodeColumns,modalVisible:false,editing:false,editingId:null,form:emptyNode(),selectedNode:null,nodeSnapshot:{inbounds:[],clients:[]},snapshotLoading:false,clientModalVisible:false,clientSaving:false,clientForm:{inboundId:null,email:'',flow:'',protocol:'',inboundLabel:''}},
+ computed:{},
  methods:{
   async loadNodes(){this.loading=true;const r=await HttpUtil.get('/panel/api/nodes/list');this.loading=false;if(r&&r.success)this.nodes=r.obj||[];},
   statusColor(n){return n.status==='online'?'green':n.status==='offline'?'red':'orange';},
   statusText(n){return n.status==='online'?'آنلاین':n.status==='offline'?'آفلاین':'نامشخص';},
   formatRate(v){v=Number(v||0);if(v<1024)return v+' B/s';if(v<1048576)return (v/1024).toFixed(1)+' KB/s';return (v/1048576).toFixed(2)+' MB/s';},
+  toggleNodeType(v){if(v){this.form.port=8787;this.form.scheme='http';this.form.basePath='';}else{this.form.port=2053;this.form.scheme='https';}},
   openAdd(){this.editing=false;this.editingId=null;this.form=emptyNode();this.modalVisible=true;},
   openEdit(n){this.editing=true;this.editingId=n.id;this.form=Object.assign(emptyNode(),n,{apiToken:''});this.modalVisible=true;},
   async saveNode(){
@@ -109,6 +168,10 @@ const app = new Vue({
    const r=await HttpUtil.post(url,payload);this.saving=false;
    if(r&&r.success){this.$message.success('اطلاعات نود ذخیره شد');this.modalVisible=false;await this.loadNodes();}
   },
+  async showNode(n){this.selectedNode=n;this.snapshotLoading=true;const r=await HttpUtil.get('/panel/api/nodes/snapshot/'+n.id);this.snapshotLoading=false;if(r&&r.success)this.nodeSnapshot=r.obj||{inbounds:[],clients:[]};else this.$message.warning((r&&r.msg)||'دریافت Inboundها ناموفق بود');},
+  openCreateClient(ib){this.clientForm={inboundId:ib.remoteId,email:'',flow:'',protocol:(ib.protocol||'').toLowerCase(),inboundLabel:(ib.tag||ib.remoteTag||ib.remark)+' · '+ib.protocol+' : '+ib.port};this.clientModalVisible=true;},
+  async createNodeClient(){if(!this.clientForm.email.trim()){this.$message.error('نام کاربری را وارد کنید');return;}this.clientSaving=true;const r=await HttpUtil.post('/panel/api/nodes/createClient/'+this.selectedNode.id,{inboundId:this.clientForm.inboundId,email:this.clientForm.email,totalGB:0,months:0,days:0,flow:this.clientForm.flow});this.clientSaving=false;if(r&&r.success){this.$message.success('کاربر روی نود ساخته شد');this.clientModalVisible=false;await this.showNode(this.selectedNode);}},
+  async deleteNodeClient(cl){const r=await HttpUtil.post('/panel/api/nodes/clients/delete/'+this.selectedNode.id+'/'+encodeURIComponent(cl.email),{});if(r&&r.success){this.$message.success('کاربر از نود حذف شد');await this.showNode(this.selectedNode);}else this.$message.error((r&&r.msg)||'حذف کاربر ناموفق بود');},
   async probe(n){this.probingId=n.id;const r=await HttpUtil.post('/panel/api/nodes/probe/'+n.id,{});this.probingId=null;if(r&&r.obj){const i=this.nodes.findIndex(x=>x.id===n.id);if(i>=0)this.$set(this.nodes,i,r.obj);}if(r&&r.success)this.$message.success('اتصال نود برقرار است');else this.$message.warning((r&&r.msg)||'اتصال نود برقرار نشد');},
   async setEnabled(n,v){const r=await HttpUtil.post('/panel/api/nodes/setEnable/'+n.id,{enable:v});if(r&&r.success){n.enable=v;this.$message.success(v?'نود فعال شد':'نود غیرفعال شد');}else await this.loadNodes();},
   removeNode(n){this.$confirm({title:'حذف نود',content:'نود «'+n.name+'» حذف شود؟',okText:'حذف',cancelText:'انصراف',class:themeSwitcher.currentTheme,onOk:async()=>{const r=await HttpUtil.post('/panel/api/nodes/del/'+n.id);if(r&&r.success){this.$message.success('نود حذف شد');await this.loadNodes();}}});}
