@@ -413,24 +413,28 @@ func (a *NodeController) nodeClientConfig(c *gin.Context) {
   }
  }
  var chosen map[string]any
- for _, ib := range inbounds {
-  id, _ := strconv.Atoi(fmt.Sprint(ib["id"]))
-  if id == 0 { if f,ok:=ib["id"].(float64);ok { id=int(f) } }
-  if id <= 0 { if f,ok:=ib["port"].(float64);ok { _=f } }
-  if id > 0 {
-   // Resolve the inbound through the local membership list below.
-   var membership model.NodeInboundSnapshot
-   if nodeDB().Where("node_id = ? AND remote_id = ?", n.Id, id).First(&membership).Error == nil {
-    chosen = ib; break
+ // Prefer explicit inboundIds returned by the remote client API.
+ ids, _ := client["inboundIds"].([]any)
+ for _, v := range ids {
+  target, _ := strconv.Atoi(fmt.Sprint(v))
+  for _, ib := range inbounds { iid,_:=strconv.Atoi(fmt.Sprint(ib["id"])); if iid==target { chosen=ib; break } }
+  if chosen!=nil { break }
+ }
+ // Otherwise match the email inside each inbound's actual settings.clients.
+ if chosen == nil {
+  for _, ib := range inbounds {
+   rawSettings := ib["settings"]
+   var settings map[string]any
+   switch value := rawSettings.(type) {
+   case string: _ = json.Unmarshal([]byte(value), &settings)
+   case map[string]any: settings = value
    }
+   clients, _ := settings["clients"].([]any)
+   for _, item := range clients { if cm,ok:=item.(map[string]any);ok && strings.EqualFold(strings.TrimSpace(fmt.Sprint(cm["email"])),email) { chosen=ib; if client["id"]==nil { for k,v:=range cm { client[k]=v } }; break } }
+   if chosen!=nil { break }
   }
  }
- if chosen == nil {
-  // Sanaei's client lookup can expose inboundIds; use it when the snapshot
-  // doesn't provide a unique match.
-  ids, _ := client["inboundIds"].([]any)
-  for _, v := range ids { target, _ := strconv.Atoi(fmt.Sprint(v)); for _, ib := range inbounds { iid,_:=strconv.Atoi(fmt.Sprint(ib["id"])); if iid==target { chosen=ib; break } }; if chosen!=nil { break } }
- }
+ if chosen == nil { c.JSON(http.StatusNotFound, gin.H{"success":false,"msg":"Inbound متناظر این کاربر در تنظیمات واقعی سنایی پیدا نشد"}); return }
  if chosen == nil { c.JSON(http.StatusNotFound, gin.H{"success":false,"msg":"Inbound متناظر کاربر در نود پیدا نشد"}); return }
  protocol := strings.ToLower(strings.TrimSpace(fmt.Sprint(chosen["protocol"])))
  credential := strings.TrimSpace(fmt.Sprint(client["id"]))
