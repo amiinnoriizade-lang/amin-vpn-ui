@@ -36,5 +36,11 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Build and test changed Go packages
+      - name: Prepare optional embedded runtime directories
+        run: |
+          mkdir -p bin core
+          touch bin/.keep core/.keep
+      - name: Compile all packages
+        run: go build ./...
+      - name: Test node integration packages
         run: go test -race ./web/job ./web/controller ./database/model
