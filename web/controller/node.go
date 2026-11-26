@@ -6,6 +6,7 @@ import (
  "net/url"
  "time"
  "encoding/json"
+ "encoding/base64"
  "fmt"
  "context"
 
@@ -59,6 +60,7 @@ func NewNodeController(g *gin.RouterGroup) *NodeController {
  g.GET("/clients", c.listNodeClients)
  g.POST("/clients/update/:id/:email", c.updateNodeClient)
  g.POST("/clients/delete/:id/:email", c.deleteNodeClient)
+ g.GET("/clients/config/:id/:email", c.nodeClientConfig)
  return c
 }
 
@@ -379,4 +381,108 @@ func (a *NodeController) deleteNodeClient(c *gin.Context) {
  if _,err:=job.ManageNodeClient(ctx,n,http.MethodPost,"panel/api/clients/del/"+url.PathEscape(email)+"?keepTraffic=0",[]byte("{}")); err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":err.Error()}); return }
  _=nodeDB().Where("node_id = ? AND email = ?",n.Id,email).Delete(&model.NodeClientSnapshot{}).Error
  c.JSON(http.StatusOK,gin.H{"success":true})
+}
+
+
+// nodeClientConfig fetches live Sanaei credentials and builds a share URI without
+// persisting UUIDs/passwords in the local database.
+func (a *NodeController) nodeClientConfig(c *gin.Context) {
+ n, ok := a.loadManageableNode(c)
+ if !ok { return }
+ email := strings.ToLower(strings.TrimSpace(c.Param("email")))
+ if !validRemoteEmail(email) { c.JSON(http.StatusBadRequest, gin.H{"success":false,"msg":"invalid username"}); return }
+ var snapshot model.NodeClientSnapshot
+ if err := nodeDB().Where("node_id = ? AND email = ?", n.Id, email).First(&snapshot).Error; err != nil {
+  c.JSON(http.StatusNotFound, gin.H{"success":false,"msg":"client not found in this node"}); return
+ }
+ ctx, cancel := context.WithTimeout(c.Request.Context(), 12*time.Second); defer cancel()
+ rawClient, err := job.ManageNodeClient(ctx, n, http.MethodGet, "panel/api/clients/get/"+url.PathEscape(email), nil)
+ if err != nil { c.JSON(http.StatusBadGateway, gin.H{"success":false,"msg":"دریافت اطلاعات زنده کاربر از سنایی ناموفق بود: "+err.Error()}); return }
+ var clientEnvelope map[string]any
+ if err = json.Unmarshal(rawClient, &clientEnvelope); err != nil { c.JSON(http.StatusBadGateway, gin.H{"success":false,"msg":"ساختار اطلاعات کاربر نامعتبر است"}); return }
+ client := clientEnvelope
+ if nested, ok := clientEnvelope["client"].(map[string]any); ok { client = nested }
+ if strings.ToLower(strings.TrimSpace(fmt.Sprint(client["email"]))) != email { c.JSON(http.StatusBadGateway, gin.H{"success":false,"msg":"کاربر برگشتی با نام درخواستی مطابقت ندارد"}); return }
+ rawInbounds, err := job.ManageNodeClient(ctx, n, http.MethodGet, "panel/api/inbounds/list", nil)
+ if err != nil { c.JSON(http.StatusBadGateway, gin.H{"success":false,"msg":"دریافت تنظیمات Inbound ناموفق بود: "+err.Error()}); return }
+ var inbounds []map[string]any
+ if err = json.Unmarshal(rawInbounds, &inbounds); err != nil {
+  var wrapper map[string]any
+  if json.Unmarshal(rawInbounds, &wrapper) == nil {
+   if arr, ok := wrapper["inbounds"].([]any); ok { for _, v := range arr { if m,ok:=v.(map[string]any);ok { inbounds=append(inbounds,m) } } }
+  }
+ }
+ var chosen map[string]any
+ for _, ib := range inbounds {
+  id, _ := strconv.Atoi(fmt.Sprint(ib["id"]))
+  if id == 0 { if f,ok:=ib["id"].(float64);ok { id=int(f) } }
+  if id <= 0 { if f,ok:=ib["port"].(float64);ok { _=f } }
+  if id > 0 {
+   // Resolve the inbound through the local membership list below.
+   var membership model.NodeInboundSnapshot
+   if nodeDB().Where("node_id = ? AND remote_id = ?", n.Id, id).First(&membership).Error == nil {
+    chosen = ib; break
+   }
+  }
+ }
+ if chosen == nil {
+  // Sanaei's client lookup can expose inboundIds; use it when the snapshot
+  // doesn't provide a unique match.
+  ids, _ := client["inboundIds"].([]any)
+  for _, v := range ids { target, _ := strconv.Atoi(fmt.Sprint(v)); for _, ib := range inbounds { iid,_:=strconv.Atoi(fmt.Sprint(ib["id"])); if iid==target { chosen=ib; break } }; if chosen!=nil { break } }
+ }
+ if chosen == nil { c.JSON(http.StatusNotFound, gin.H{"success":false,"msg":"Inbound متناظر کاربر در نود پیدا نشد"}); return }
+ protocol := strings.ToLower(strings.TrimSpace(fmt.Sprint(chosen["protocol"])))
+ credential := strings.TrimSpace(fmt.Sprint(client["id"]))
+ if credential == "" || credential == "<nil>" { credential = strings.TrimSpace(fmt.Sprint(client["password"])) }
+ if credential == "" || credential == "<nil>" { c.JSON(http.StatusBadGateway, gin.H{"success":false,"msg":"شناسه یا رمز واقعی کاربر در پاسخ سنایی موجود نیست"}); return }
+ port := int(0); if f,ok:=chosen["port"].(float64);ok { port=int(f) }; if port<1 || port>65535 { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"پورت Inbound نامعتبر است"}); return }
+ host := strings.TrimSpace(n.Address)
+ if strings.Contains(host, ":") && !strings.HasPrefix(host,"[") { host="["+host+"]" }
+ stream, _ := chosen["streamSettings"].(map[string]any)
+ network := strings.TrimSpace(fmt.Sprint(stream["network"])); if network=="" || network=="<nil>" { network="tcp" }
+ security := strings.TrimSpace(fmt.Sprint(stream["security"])); if security=="" || security=="<nil>" { security="none" }
+ q := url.Values{"type":{network},"security":{security}}
+ if protocol=="vless" { q.Set("encryption","none"); if flow:=strings.TrimSpace(fmt.Sprint(client["flow"])); flow!="" && flow!="<nil>" { q.Set("flow",flow) } }
+ if security=="tls" || security=="reality" {
+  key := "tlsSettings"; if security=="reality" { key="realitySettings" }
+  tlsCfg,_:=stream[key].(map[string]any)
+  for source,target:=range map[string]string{"serverName":"sni","fingerprint":"fp","alpn":"alpn"} {
+   if val:=strings.TrimSpace(fmt.Sprint(tlsCfg[source])); val!="" && val!="<nil>" { q.Set(target,val) }
+  }
+  if security=="reality" {
+   settings,_:=tlsCfg["settings"].(map[string]any)
+   for source,target:=range map[string]string{"publicKey":"pbk","shortId":"sid","spiderX":"spx"} {
+    val:=strings.TrimSpace(fmt.Sprint(settings[source])); if val!="" && val!="<nil>" { q.Set(target,val) }
+   }
+   if q.Get("pbk")=="" { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"Public Key واقعی Reality در تنظیمات Inbound پیدا نشد"}); return }
+  }
+ }
+ switch network {
+ case "ws":
+  cfg,_:=stream["wsSettings"].(map[string]any); if p:=fmt.Sprint(cfg["path"]);p!=""&&p!="<nil>" {q.Set("path",p)}
+  headers,_:=cfg["headers"].(map[string]any); if h:=fmt.Sprint(headers["Host"]);h!=""&&h!="<nil>" {q.Set("host",h)}
+ case "grpc":
+  cfg,_:=stream["grpcSettings"].(map[string]any); if s:=fmt.Sprint(cfg["serviceName"]);s!=""&&s!="<nil>" {q.Set("serviceName",s)}
+  if a:=fmt.Sprint(cfg["authority"]);a!=""&&a!="<nil>" {q.Set("authority",a)}
+ case "httpupgrade":
+  cfg,_:=stream["httpupgradeSettings"].(map[string]any); if p:=fmt.Sprint(cfg["path"]);p!=""&&p!="<nil>" {q.Set("path",p)}
+  if h:=fmt.Sprint(cfg["host"]);h!=""&&h!="<nil>" {q.Set("host",h)}
+ }
+ remark:=strings.TrimSpace(fmt.Sprint(chosen["remark"])); if remark==""||remark=="<nil>" {remark=n.Name}
+ label:=url.QueryEscape(remark+"-"+email)
+ var link string
+ switch protocol {
+ case "vless","trojan":
+  scheme:=protocol
+  link=fmt.Sprintf("%s://%s@%s:%d?%s#%s",scheme,url.QueryEscape(credential),host,port,q.Encode(),label)
+ case "vmess":
+  tlsCfg:=""; if security=="tls" {tlsCfg="tls"}
+  wsPath:=q.Get("path"); wsHost:=q.Get("host")
+  payload:=map[string]any{"v":"2","ps":remark+"-"+email,"add":n.Address,"port":strconv.Itoa(port),"id":credential,"aid":fmt.Sprint(client["alterId"]),"scy":"auto","net":network,"type":"none","host":wsHost,"path":wsPath,"tls":tlsCfg,"sni":q.Get("sni")}
+  b,_:=json.Marshal(payload); link="vmess://"+base64.RawStdEncoding.EncodeToString(b)
+ default:
+  c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"تولید لینک برای پروتکل "+protocol+" پشتیبانی نشده است"}); return
+ }
+ c.JSON(http.StatusOK,gin.H{"success":true,"obj":gin.H{"email":email,"nodeName":n.Name,"inbound":remark,"protocol":protocol,"link":link}})
 }
