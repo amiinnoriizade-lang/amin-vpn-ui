@@ -212,7 +212,7 @@ const app = new Vue({
   statusColor(n){return n.status==='online'?'green':n.status==='offline'?'red':'orange';},
   statusText(n){return n.status==='online'?'آنلاین':n.status==='offline'?'آفلاین':'نامشخص';},
   formatRate(v){v=Number(v||0);if(v<1024)return v+' B/s';if(v<1048576)return (v/1024).toFixed(1)+' KB/s';return (v/1048576).toFixed(2)+' MB/s';},
-  toggleNodeType(v){if(v){this.form.port=18787;this.form.scheme='http';this.form.basePath='';this.form.allowPrivateAddress=true;}else{this.form.port=2053;this.form.scheme='https';}},
+  toggleNodeType(v){this.form.agentMode=v;if(v){this.form.port=18787;this.form.scheme='http';this.form.basePath='';this.form.allowPrivateAddress=true;}else{this.form.port=2053;this.form.scheme='https';}},
   openAdd(){this.editing=false;this.editingId=null;this.form=emptyNode();this.modalVisible=true;},
   openEdit(n){this.editing=true;this.editingId=n.id;this.form=Object.assign(emptyNode(),n,{apiToken:''});this.modalVisible=true;},
   async saveNode(){
