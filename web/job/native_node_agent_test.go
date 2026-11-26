@@ -27,6 +27,21 @@ func TestNativeInboundIDIsStableAndPositive(t *testing.T) {
 	}
 }
 
+
+func TestNativeClientEnabledDefaultsAndHonorsExplicitValue(t *testing.T) {
+	if !nativeClientEnabled(nil) {
+		t.Fatal("missing enable field must default to enabled")
+	}
+	enabled := true
+	if !nativeClientEnabled(&enabled) {
+		t.Fatal("explicit enabled client was marked disabled")
+	}
+	disabled := false
+	if nativeClientEnabled(&disabled) {
+		t.Fatal("explicit disabled client was marked enabled")
+	}
+}
+
 func TestNativeAgentRequestsUseBearerAndExpectedRoutes(t *testing.T) {
 	const token = "test-node-token-with-sufficient-length"
 	requests := 0
