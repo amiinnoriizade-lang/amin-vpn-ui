@@ -27,32 +27,47 @@ func keyFilePath() string {
 	return filepath.Join(config.GetDBFolderPath(), "node-token.key")
 }
 
-func loadKey() ([]byte, error) {
+func loadKey(create bool) ([]byte, error) {
 	path := keyFilePath()
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, fmt.Errorf("create node token key directory: %w", err)
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
-	if err == nil {
+	if create {
 		key := make([]byte, 32)
-		if _, err = io.ReadFull(rand.Reader, key); err == nil {
-			_, err = f.Write(key)
+		if _, err := io.ReadFull(rand.Reader, key); err != nil {
+			return nil, fmt.Errorf("generate node token key: %w", err)
 		}
-		if closeErr := f.Close(); err == nil {
+		tmp, err := os.CreateTemp(filepath.Dir(path), ".node-token-key-*")
+		if err != nil {
+			return nil, fmt.Errorf("stage node token key: %w", err)
+		}
+		tmpPath := tmp.Name()
+		defer os.Remove(tmpPath)
+		if err = tmp.Chmod(0600); err == nil {
+			_, err = tmp.Write(key)
+		}
+		if err == nil {
+			err = tmp.Sync()
+		}
+		if closeErr := tmp.Close(); err == nil {
 			err = closeErr
 		}
 		if err != nil {
-			_ = os.Remove(path)
-			return nil, fmt.Errorf("initialize node token key: %w", err)
+			return nil, fmt.Errorf("write node token key: %w", err)
 		}
-		return key, nil
+		// Link is atomic and never overwrites a key another process created.
+		if err = os.Link(tmpPath, path); err == nil {
+			return key, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return nil, fmt.Errorf("install node token key: %w", err)
+		}
 	}
-	if !errors.Is(err, os.ErrExist) {
-		return nil, fmt.Errorf("open node token key: %w", err)
-	}
-
 	info, err := os.Lstat(path)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, errors.New("node token key is missing; restore node-token.key from backup or re-enter the node token")
+		}
 		return nil, fmt.Errorf("inspect node token key: %w", err)
 	}
 	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
@@ -83,7 +98,7 @@ func Encrypt(token string) (string, error) {
 		}
 		return token, nil
 	}
-	key, err := loadKey()
+	key, err := loadKey(false)
 	if err != nil {
 		return "", err
 	}
