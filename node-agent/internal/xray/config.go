@@ -411,7 +411,7 @@ func (m *ConfigManager) AddClient(tag string, client map[string]interface{}) err
 			if _, ok := value.(float64); !ok { return fmt.Errorf("client field %s must be a number", key) }
 		}
 	}
-	if strings.TrimSpace(email) != email || strings.ContainsAny(email, " \\t\\r\\n") {
+	if strings.TrimSpace(email) != email || strings.ContainsAny(email, " \t\r\n") {
 		return errors.New("client email must not contain whitespace")
 	}
 	return m.mutateClients(tag, func(protocol string, clients []interface{}) ([]interface{}, error) {
