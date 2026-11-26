@@ -67,6 +67,11 @@ func nativeInboundID(tag string) int {
  return id
 }
 
+func nativeClientEnabled(enabled *bool) bool {
+	// Xray client objects commonly omit the enable field; omission means enabled.
+	return enabled == nil || *enabled
+}
+
 func syncNativeAgentNode(n model.Node, now int64) ([]nodeClientDelta, []string, map[string]int64, error) {
  ctx,cancel:=context.WithTimeout(context.Background(),nodeTrafficRequestTimeout)
  defer cancel()
@@ -90,9 +95,16 @@ func syncNativeAgentNode(n model.Node, now int64) ([]nodeClientDelta, []string, 
   for _,client:=range settings.Clients {
    email:=strings.ToLower(strings.TrimSpace(client.Email))
    if email=="" { continue }
+   enabled:=nativeClientEnabled(client.Enable)
    item:=clients[email]
-   if item==nil { item=&model.NodeClientSnapshot{NodeID:n.Id,Email:email,Enable:true,LastSyncAt:now}; clients[email]=item }
-   if client.Enable!=nil { item.Enable=item.Enable || *client.Enable }
+   if item==nil {
+    item=&model.NodeClientSnapshot{NodeID:n.Id,Email:email,Enable:enabled,LastSyncAt:now}
+    clients[email]=item
+   } else {
+    // A username may be present on several inbounds; it is enabled if any
+    // corresponding Xray client is enabled. Missing enable fields default to true.
+    item.Enable=item.Enable || enabled
+   }
    if client.ExpiryTime>item.ExpiryTime { item.ExpiryTime=client.ExpiryTime }
   }
  }
