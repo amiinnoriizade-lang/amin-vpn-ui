@@ -1,6 +1,6 @@
 # AMIN Node Agent
 
-The standalone Go agent provides authenticated local control of an Xray node. It binds to loopback by default and does not require Sanaei.
+The standalone Go agent provides authenticated local control of an Xray node. Current Agent version: `0.2.2`. It binds to loopback by default and does not require Sanaei.
 
 ## Build and test
 
@@ -69,7 +69,7 @@ Example create request (the settings and stream settings are Xray-native objects
 - `POST /api/v1/inbounds/{tag}/clients`
 - `DELETE /api/v1/inbounds/{tag}/clients?email={email}`
 
-Client JSON accepts only `email`, `id`, `level`, `flow`, `alterId`, `security`, and `password`. VLESS/VMess require a UUID in `id`; Trojan and Shadowsocks require `password`. Shadowsocks cipher selection belongs to the inbound's Xray settings, not an individual client.
+Client JSON accepts only `email`, `id`, `level`, `flow`, `alterId`, `security`, and `password`. VLESS/VMess require a syntactically valid UUID in `id`; Trojan and Shadowsocks require a non-empty `password`. Client identity credentials (`id` or `password`) and email must be unique within the inbound. String/numeric field types and whitespace in email are validated before any config write. Shadowsocks cipher selection belongs to the inbound's Xray settings, not an individual client.
 
 ## Safety behavior
 
