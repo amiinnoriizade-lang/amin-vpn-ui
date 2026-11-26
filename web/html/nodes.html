@@ -112,15 +112,15 @@
   <a-form-model :model="form" :label-col="{span:7}" :wrapper-col="{span:17}">
     <a-form-model-item label="نوع نود"><a-switch v-model="form.agentMode" checked-children="AMIN Agent" un-checked-children="Sanaei" @change="toggleNodeType"/></a-form-model-item>
     <a-alert v-if="form.agentMode" type="warning" show-icon message="ارتباط امن با AMIN Node Agent"
-      description="Agent فعلی فقط روی 127.0.0.1:8787 گوش می‌دهد. برای اتصال پنلِ جداگانه، ابتدا یک تونل خصوصی مدیریت تا پورت محلی پنل بسازید؛ پورت Agent را مستقیماً روی اینترنت باز نکنید." style="margin-bottom:12px"/>
+      description="Agent روی 127.0.0.1:8787 در سرور مقصد گوش می‌دهد. چون تونل روی سرور پنل در 127.0.0.1:18787 ساخته شده، آدرس را 127.0.0.1، پورت را 18787 و Base Path را خالی بگذارید. HTTP فقط روی تونل خصوصی مجاز است؛ پورت Agent را عمومی نکنید." style="margin-bottom:12px"/>
     <a-form-model-item label="نام نود" required><a-input v-model="form.name" placeholder="Germany-1"/></a-form-model-item>
     <a-form-model-item label="توضیحات"><a-input v-model="form.remark"/></a-form-model-item>
     <a-row :gutter="8">
       <a-col :span="8"><a-form-model-item label="پروتکل"><a-select v-model="form.scheme"><a-select-option value="https">HTTPS</a-select-option><a-select-option value="http">HTTP</a-select-option></a-select></a-form-model-item></a-col>
-      <a-col :span="10"><a-form-model-item label="آدرس"><a-input v-model="form.address" placeholder="node.example.com"/></a-form-model-item></a-col>
+      <a-col :span="10"><a-form-model-item label="آدرس"><a-input v-model="form.address" :placeholder="form.agentMode ? '127.0.0.1 (آدرس تونل روی سرور پنل)' : 'node.example.com'"/></a-form-model-item></a-col>
       <a-col :span="6"><a-form-model-item label="پورت"><a-input-number v-model="form.port" :min="1" :max="65535" style="width:100%"/></a-form-model-item></a-col>
     </a-row>
-    <a-form-model-item label="Base Path"><a-input v-model="form.basePath" placeholder="/"/></a-form-model-item>
+    <a-form-model-item label="Base Path"><a-input v-model="form.basePath" :placeholder="form.agentMode ? 'خالی بگذارید' : '/'"/></a-form-model-item>
     <a-form-model-item :label="editing ? 'توکن جدید (اختیاری)' : 'API Token'"><a-input-password v-model="form.apiToken" :placeholder="editing ? 'خالی = حفظ توکن فعلی' : (form.agentMode ? 'AMIN_NODE_TOKEN' : 'توکن دسترسی پنل سنایی')"/></a-form-model-item>
     <a-form-model-item label="اعتبار TLS"><a-select v-model="form.tlsVerifyMode"><a-select-option value="system">اعتبارسنجی استاندارد</a-select-option><a-select-option value="insecure">بدون اعتبارسنجی (ناامن)</a-select-option><a-select-option value="pinned">گواهی Pin شده</a-select-option></a-select></a-form-model-item>
     <a-form-model-item v-if="form.tlsVerifyMode==='pinned'" label="SHA-256 Fingerprint"><a-input v-model="form.pinnedCertSha256"/></a-form-model-item>
@@ -166,7 +166,7 @@ const app = new Vue({
   statusColor(n){return n.status==='online'?'green':n.status==='offline'?'red':'orange';},
   statusText(n){return n.status==='online'?'آنلاین':n.status==='offline'?'آفلاین':'نامشخص';},
   formatRate(v){v=Number(v||0);if(v<1024)return v+' B/s';if(v<1048576)return (v/1024).toFixed(1)+' KB/s';return (v/1048576).toFixed(2)+' MB/s';},
-  toggleNodeType(v){if(v){this.form.port=8787;this.form.scheme='http';this.form.basePath='';this.form.allowPrivateAddress=true;}else{this.form.port=2053;this.form.scheme='https';}},
+  toggleNodeType(v){if(v){this.form.port=18787;this.form.scheme='http';this.form.basePath='';this.form.allowPrivateAddress=true;}else{this.form.port=2053;this.form.scheme='https';}},
   openAdd(){this.editing=false;this.editingId=null;this.form=emptyNode();this.modalVisible=true;},
   openEdit(n){this.editing=true;this.editingId=n.id;this.form=Object.assign(emptyNode(),n,{apiToken:''});this.modalVisible=true;},
   async saveNode(){
