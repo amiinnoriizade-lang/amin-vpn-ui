@@ -35,7 +35,9 @@ func TestDecryptRejectsTamperedCiphertext(t *testing.T) {
 	t.Setenv("VPNUI_NODE_TOKEN_KEY_FILE", filepath.Join(t.TempDir(), "node-token.key"))
 	encrypted, err := Encrypt("secret-token")
 	if err != nil { t.Fatal(err) }
-	changed := encrypted[:len(encrypted)-1] + "A"
+	replacement := "A"
+	if encrypted[len(prefix)] == 'A' { replacement = "B" }
+	changed := encrypted[:len(prefix)] + replacement + encrypted[len(prefix)+1:]
 	if _, err := Decrypt(changed); err == nil {
 		t.Fatal("expected tampered ciphertext to be rejected")
 	}
