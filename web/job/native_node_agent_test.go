@@ -46,6 +46,7 @@ func TestNativeAgentRequestsUseBearerAndExpectedRoutes(t *testing.T) {
 			if !strings.Contains(string(body), `"email":"test-user"`) {
 				t.Errorf("client request body = %s", body)
 			}
+			w.WriteHeader(http.StatusCreated)
 			_, _ = w.Write([]byte(`{"success":true,"msg":"client created"}`))
 		case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/inbounds/test-inbound/clients" && r.URL.Query().Get("email") == "test-user":
 			_, _ = w.Write([]byte(`{"success":true,"msg":"client deleted"}`))
