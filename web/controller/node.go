@@ -20,6 +20,7 @@ import (
  "github.com/gin-gonic/gin"
  "github.com/mhsanaei/3x-ui/v2/database"
  "github.com/mhsanaei/3x-ui/v2/database/model"
+ "github.com/mhsanaei/3x-ui/v2/util/nodetoken"
  "gorm.io/gorm"
 )
 
@@ -112,6 +113,9 @@ func (a *NodeController) add(c *gin.Context) {
  if err:=c.ShouldBind(&v); err!=nil {c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid JSON"});return}
  if msg:=validNodeMutation(v,true); msg!="" {c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":msg});return}
  n:=nodeFromMutation(v,model.Node{})
+ encryptedToken, tokenErr := nodetoken.Encrypt(n.ApiToken)
+ if tokenErr != nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"could not protect node API token: "+tokenErr.Error()}); return }
+ n.ApiToken = encryptedToken
  if err:=nodeDB().Create(&n).Error; err!=nil {c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":err.Error()});return}
  c.JSON(http.StatusOK,gin.H{"success":true,"obj":n})
 }
@@ -123,6 +127,9 @@ func (a *NodeController) update(c *gin.Context) {
  var n model.Node
  if err=nodeDB().First(&n,id).Error; err!=nil {c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"node not found"});return}
  n=nodeFromMutation(v,n)
+ encryptedToken, tokenErr := nodetoken.Encrypt(n.ApiToken)
+ if tokenErr != nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"could not protect node API token: "+tokenErr.Error()}); return }
+ n.ApiToken = encryptedToken
  if err=nodeDB().Save(&n).Error; err!=nil {c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":err.Error()});return}
  c.JSON(http.StatusOK,gin.H{"success":true,"obj":n})
 }
