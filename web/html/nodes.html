@@ -101,6 +101,12 @@
     <a-alert type="info" show-icon message="شناسه اتصال به‌صورت خودکار ساخته می‌شود."/>
   </a-form-model>
 </a-modal>
+<a-modal :visible="credentialModalVisible" title="اطلاعات اتصال کاربر جدید" @ok="credentialModalVisible=false" @cancel="credentialModalVisible=false" ok-text="بستن" :cancel-button-props="{style:{display:'none'}}">
+  <p>نام کاربری: <b>[[ createdEmail ]]</b></p>
+  <p>شناسه / رمز تولیدشده:</p>
+  <a-input :value="createdCredential" readonly/>
+  <a-button icon="copy" style="margin-top:8px" @click="copyCreatedCredential">کپی شناسه / رمز</a-button>
+</a-modal>
 <a-modal :visible="modalVisible" :title="editing ? 'ویرایش نود' : 'افزودن نود'" :confirm-loading="saving"
   @ok="saveNode" @cancel="modalVisible=false" ok-text="ذخیره" cancel-text="انصراف" :width="650">
   <a-form-model :model="form" :label-col="{span:7}" :wrapper-col="{span:17}">
@@ -153,14 +159,14 @@ const nodeColumns = [
 function emptyNode(){return {agentMode:false,name:'',remark:'',scheme:'https',address:'',port:2053,basePath:'',apiToken:'',enable:true,allowPrivateAddress:false,tlsVerifyMode:'system',pinnedCertSha256:'',inboundSyncMode:'all',inboundTags:'',outboundTag:'',guid:'',parentGuid:'',transitive:false};}
 const app = new Vue({
  delimiters:['[[',']]'], mixins:[MediaQueryMixin], el:'#app',
- data:{themeSwitcher,pageTitle:'Nodes',pageClass:'',loading:false,saving:false,probingId:null,nodes:[],columns:nodeColumns,modalVisible:false,editing:false,editingId:null,form:emptyNode(),selectedNode:null,nodeSnapshot:{inbounds:[],clients:[]},snapshotLoading:false,clientModalVisible:false,clientSaving:false,clientForm:{inboundId:null,email:'',flow:'',protocol:'',inboundLabel:''}},
+ data:{themeSwitcher,pageTitle:'Nodes',pageClass:'',loading:false,saving:false,probingId:null,nodes:[],columns:nodeColumns,modalVisible:false,editing:false,editingId:null,form:emptyNode(),selectedNode:null,nodeSnapshot:{inbounds:[],clients:[]},snapshotLoading:false,clientModalVisible:false,clientSaving:false,credentialModalVisible:false,createdEmail:'',createdCredential:'',clientForm:{inboundId:null,email:'',flow:'',protocol:'',inboundLabel:''}},
  computed:{},
  methods:{
   async loadNodes(){this.loading=true;const r=await HttpUtil.get('/panel/api/nodes/list');this.loading=false;if(r&&r.success)this.nodes=r.obj||[];},
   statusColor(n){return n.status==='online'?'green':n.status==='offline'?'red':'orange';},
   statusText(n){return n.status==='online'?'آنلاین':n.status==='offline'?'آفلاین':'نامشخص';},
   formatRate(v){v=Number(v||0);if(v<1024)return v+' B/s';if(v<1048576)return (v/1024).toFixed(1)+' KB/s';return (v/1048576).toFixed(2)+' MB/s';},
-  toggleNodeType(v){if(v){this.form.port=8787;this.form.scheme='http';this.form.basePath='';}else{this.form.port=2053;this.form.scheme='https';}},
+  toggleNodeType(v){if(v){this.form.port=8787;this.form.scheme='http';this.form.basePath='';this.form.allowPrivateAddress=true;}else{this.form.port=2053;this.form.scheme='https';}},
   openAdd(){this.editing=false;this.editingId=null;this.form=emptyNode();this.modalVisible=true;},
   openEdit(n){this.editing=true;this.editingId=n.id;this.form=Object.assign(emptyNode(),n,{apiToken:''});this.modalVisible=true;},
   async saveNode(){
@@ -170,9 +176,10 @@ const app = new Vue({
    const r=await HttpUtil.post(url,payload);this.saving=false;
    if(r&&r.success){this.$message.success('اطلاعات نود ذخیره شد');this.modalVisible=false;await this.loadNodes();}
   },
-  async showNode(n){this.selectedNode=n;this.snapshotLoading=true;const r=await HttpUtil.get('/panel/api/nodes/snapshot/'+n.id);this.snapshotLoading=false;if(r&&r.success)this.nodeSnapshot=r.obj||{inbounds:[],clients:[]};else this.$message.warning((r&&r.msg)||'دریافت Inboundها ناموفق بود');},
+  async showNode(n){this.selectedNode=n;this.nodeSnapshot={inbounds:[],clients:[]};this.snapshotLoading=true;const r=await HttpUtil.get('/panel/api/nodes/snapshot/'+n.id);this.snapshotLoading=false;if(r&&r.success)this.nodeSnapshot=r.obj||{inbounds:[],clients:[]};else this.$message.warning((r&&r.msg)||'دریافت Inboundها ناموفق بود');},
   openCreateClient(ib){this.clientForm={inboundId:ib.remoteId,email:'',flow:'',protocol:(ib.protocol||'').toLowerCase(),inboundLabel:(ib.tag||ib.remoteTag||ib.remark)+' · '+ib.protocol+' : '+ib.port};this.clientModalVisible=true;},
-  async createNodeClient(){if(!this.clientForm.email.trim()){this.$message.error('نام کاربری را وارد کنید');return;}this.clientSaving=true;const r=await HttpUtil.post('/panel/api/nodes/createClient/'+this.selectedNode.id,{inboundId:this.clientForm.inboundId,email:this.clientForm.email,totalGB:0,months:0,days:0,flow:this.clientForm.flow});this.clientSaving=false;if(r&&r.success){this.$message.success('کاربر روی نود ساخته شد');this.clientModalVisible=false;await this.showNode(this.selectedNode);}},
+  async createNodeClient(){if(!this.clientForm.email.trim()){this.$message.error('نام کاربری را وارد کنید');return;}this.clientSaving=true;const r=await HttpUtil.post('/panel/api/nodes/createClient/'+this.selectedNode.id,{inboundId:this.clientForm.inboundId,email:this.clientForm.email,totalGB:0,months:0,days:0,flow:this.clientForm.flow});this.clientSaving=false;if(r&&r.success){this.createdEmail=this.clientForm.email;this.createdCredential=(r.obj&&(r.obj.id||r.obj.password))||'';this.credentialModalVisible=!!this.createdCredential;this.$message.success('کاربر روی نود ساخته شد');this.clientModalVisible=false;await this.showNode(this.selectedNode);}},
+  async copyCreatedCredential(){if(!this.createdCredential)return;try{await navigator.clipboard.writeText(this.createdCredential);this.$message.success('شناسه / رمز کپی شد');}catch(e){this.$message.warning('کپی خودکار در این مرورگر در دسترس نیست؛ متن را انتخاب و کپی کنید.');}},
   async deleteNodeClient(cl){const r=await HttpUtil.post('/panel/api/nodes/clients/delete/'+this.selectedNode.id+'/'+encodeURIComponent(cl.email),{});if(r&&r.success){this.$message.success('کاربر از نود حذف شد');await this.showNode(this.selectedNode);}else this.$message.error((r&&r.msg)||'حذف کاربر ناموفق بود');},
   async probe(n){this.probingId=n.id;const r=await HttpUtil.post('/panel/api/nodes/probe/'+n.id,{});this.probingId=null;if(r&&r.obj){const i=this.nodes.findIndex(x=>x.id===n.id);if(i>=0)this.$set(this.nodes,i,r.obj);}if(r&&r.success)this.$message.success('اتصال نود برقرار است');else this.$message.warning((r&&r.msg)||'اتصال نود برقرار نشد');},
   async setEnabled(n,v){const r=await HttpUtil.post('/panel/api/nodes/setEnable/'+n.id,{enable:v});if(r&&r.success){n.enable=v;this.$message.success(v?'نود فعال شد':'نود غیرفعال شد');}else await this.loadNodes();},
