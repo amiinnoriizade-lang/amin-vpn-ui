@@ -15,7 +15,42 @@ import (
 	"time"
 )
 
-var serviceNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_.@-]{1,128}$`)
+var serviceNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_.@-]{1,128}package xray
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+)
+
+)
+var uuidPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}package xray
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+)
+
+)
 
 // ConfigManager owns one fixed Xray config path. All changes are validated by
 // the Xray binary before the live file is replaced, and the service is restarted
@@ -366,25 +401,37 @@ func (m *ConfigManager) AddClient(tag string, client map[string]interface{}) err
 	if len(client) == 0 {
 		return errors.New("client fields are required")
 	}
+	for _, key := range []string{"email", "id", "flow", "security", "password"} {
+		if value, exists := client[key]; exists {
+			if _, ok := value.(string); !ok { return fmt.Errorf("client field %s must be a string", key) }
+		}
+	}
+	for _, key := range []string{"level", "alterId"} {
+		if value, exists := client[key]; exists {
+			if _, ok := value.(float64); !ok { return fmt.Errorf("client field %s must be a number", key) }
+		}
+	}
+	if strings.TrimSpace(email) != email || strings.ContainsAny(email, " \\t\\r\\n") {
+		return errors.New("client email must not contain whitespace")
+	}
 	return m.mutateClients(tag, func(protocol string, clients []interface{}) ([]interface{}, error) {
+		credentialKey := ""
 		switch protocol {
 		case "vless", "vmess":
-			if stringField(client, "id") == "" { return nil, errors.New("client id (UUID) is required for vless/vmess") }
-		case "trojan":
-			if stringField(client, "password") == "" { return nil, errors.New("client password is required for trojan") }
-		case "shadowsocks":
-			if stringField(client, "password") == "" { return nil, errors.New("client password is required for shadowsocks") }
+			id := stringField(client, "id")
+			if !uuidPattern.MatchString(id) { return nil, errors.New("client id must be a valid UUID for vless/vmess") }
+			credentialKey = "id"
+		case "trojan", "shadowsocks":
+			if stringField(client, "password") == "" { return nil, fmt.Errorf("client password is required for %s", protocol) }
+			credentialKey = "password"
 		default:
 			return nil, errors.New("unsupported inbound protocol for client management")
 		}
 		for _, raw := range clients {
 			existing, ok := raw.(map[string]interface{})
-			if !ok {
-				return nil, errors.New("invalid client entry")
-			}
-			if stringField(existing, "email") == email {
-				return nil, errors.New("client email already exists")
-			}
+			if !ok { return nil, errors.New("invalid client entry") }
+			if stringField(existing, "email") == email { return nil, errors.New("client email already exists") }
+			if stringField(existing, credentialKey) == stringField(client, credentialKey) { return nil, fmt.Errorf("client %s already exists", credentialKey) }
 		}
 		return append(clients, client), nil
 	})
