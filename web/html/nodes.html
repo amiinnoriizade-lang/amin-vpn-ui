@@ -108,27 +108,72 @@
   <a-button icon="copy" style="margin-top:8px" @click="copyCreatedCredential">کپی شناسه / رمز</a-button>
 </a-modal>
 <a-modal :visible="modalVisible" :title="editing ? 'ویرایش نود' : 'افزودن نود'" :confirm-loading="saving"
-  @ok="saveNode" @cancel="modalVisible=false" ok-text="ذخیره" cancel-text="انصراف" :width="650">
-  <a-form-model :model="form" :label-col="{span:7}" :wrapper-col="{span:17}">
-    <a-form-model-item label="نوع نود"><a-switch v-model="form.agentMode" checked-children="AMIN Agent" un-checked-children="Sanaei" @change="toggleNodeType"/></a-form-model-item>
-    <a-alert v-if="form.agentMode" type="warning" show-icon message="ارتباط امن با AMIN Node Agent"
-      description="Agent روی 127.0.0.1:8787 در سرور مقصد گوش می‌دهد. چون تونل روی سرور پنل در 127.0.0.1:18787 ساخته شده، آدرس را 127.0.0.1، پورت را 18787 و Base Path را خالی بگذارید. HTTP فقط روی تونل خصوصی مجاز است؛ پورت Agent را عمومی نکنید." style="margin-bottom:12px"/>
-    <a-form-model-item label="نام نود" required><a-input v-model="form.name" placeholder="Germany-1"/></a-form-model-item>
-    <a-form-model-item label="توضیحات"><a-input v-model="form.remark"/></a-form-model-item>
-    <a-row :gutter="8">
-      <a-col :span="8"><a-form-model-item label="پروتکل"><a-select v-model="form.scheme"><a-select-option value="https">HTTPS</a-select-option><a-select-option value="http">HTTP</a-select-option></a-select></a-form-model-item></a-col>
-      <a-col :span="10"><a-form-model-item label="آدرس"><a-input v-model="form.address" :placeholder="form.agentMode ? '127.0.0.1 (آدرس تونل روی سرور پنل)' : 'node.example.com'"/></a-form-model-item></a-col>
-      <a-col :span="6"><a-form-model-item label="پورت"><a-input-number v-model="form.port" :min="1" :max="65535" style="width:100%"/></a-form-model-item></a-col>
-    </a-row>
-    <a-form-model-item label="Base Path"><a-input v-model="form.basePath" :placeholder="form.agentMode ? 'خالی بگذارید' : '/'"/></a-form-model-item>
-    <a-form-model-item :label="editing ? 'توکن جدید (اختیاری)' : 'API Token'"><a-input-password v-model="form.apiToken" :placeholder="editing ? 'خالی = حفظ توکن فعلی' : (form.agentMode ? 'AMIN_NODE_TOKEN' : 'توکن دسترسی پنل سنایی')"/></a-form-model-item>
-    <a-form-model-item label="اعتبار TLS"><a-select v-model="form.tlsVerifyMode"><a-select-option value="system">اعتبارسنجی استاندارد</a-select-option><a-select-option value="insecure">بدون اعتبارسنجی (ناامن)</a-select-option><a-select-option value="pinned">گواهی Pin شده</a-select-option></a-select></a-form-model-item>
-    <a-form-model-item v-if="form.tlsVerifyMode==='pinned'" label="SHA-256 Fingerprint"><a-input v-model="form.pinnedCertSha256"/></a-form-model-item>
-    <a-form-model-item label="Inbound Sync"><a-select v-model="form.inboundSyncMode"><a-select-option value="all">همه Inboundها</a-select-option><a-select-option value="tag">بر اساس Tag</a-select-option><a-select-option value="none">غیرفعال</a-select-option></a-select></a-form-model-item>
-    <a-form-model-item v-if="form.inboundSyncMode==='tag'" label="Inbound Tags"><a-input v-model="form.inboundTags" placeholder="tag1,tag2"/></a-form-model-item>
-    <a-form-model-item label="وضعیت"><a-switch v-model="form.enable" checked-children="فعال" un-checked-children="خاموش"/></a-form-model-item>
-    <a-form-model-item label="شبکه خصوصی"><a-switch v-model="form.allowPrivateAddress"/></a-form-model-item>
-  </a-form-model>
+  @ok="saveNode" @cancel="modalVisible=false" ok-text="ذخیره" cancel-text="انصراف" :width="650"
+  :body-style="{maxHeight:'65vh',overflowY:'auto',padding:'12px'}">
+  <div style="display:flex;flex-direction:column;gap:12px;min-width:0">
+    <label style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+      <strong>نوع نود</strong>
+      <span style="display:flex;align-items:center;gap:8px">
+        <span>سنایی</span>
+        <a-switch :checked="form.agentMode" checked-children="Agent" un-checked-children="Sanaei"
+          @change="toggleNodeType"/>
+        <span>AMIN Agent</span>
+      </span>
+    </label>
+    <div v-if="form.agentMode" style="padding:10px 12px;border:1px solid #faad14;border-radius:6px;background:#fffbe6;color:#614700;line-height:1.6">
+      <strong>ارتباط امن با AMIN Node Agent</strong>
+      <div>Agent روی 127.0.0.1:8787 در سرور مقصد گوش می‌دهد. چون تونل روی سرور پنل در 127.0.0.1:18787 ساخته شده، آدرس را 127.0.0.1، پورت را 18787 و Base Path را خالی بگذارید. HTTP فقط روی تونل خصوصی مجاز است؛ پورت Agent را عمومی نکنید.</div>
+    </div>
+    <label style="display:block">نام نود *
+      <a-input v-model="form.name" placeholder="Germany-1" style="display:block;width:100%;margin-top:5px"/>
+    </label>
+    <label style="display:block">توضیحات
+      <a-input v-model="form.remark" style="display:block;width:100%;margin-top:5px"/>
+    </label>
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr) minmax(90px,.8fr);gap:8px">
+      <label style="min-width:0">پروتکل
+        <a-select v-model="form.scheme" style="display:block;width:100%;margin-top:5px">
+          <a-select-option value="https">HTTPS</a-select-option><a-select-option value="http">HTTP</a-select-option>
+        </a-select>
+      </label>
+      <label style="min-width:0">آدرس
+        <a-input v-model="form.address" :placeholder="form.agentMode ? '127.0.0.1' : 'node.example.com'" style="display:block;width:100%;margin-top:5px"/>
+      </label>
+      <label style="min-width:0">پورت
+        <a-input-number v-model="form.port" :min="1" :max="65535" style="display:block;width:100%;margin-top:5px"/>
+      </label>
+    </div>
+    <label style="display:block">Base Path
+      <a-input v-model="form.basePath" :placeholder="form.agentMode ? 'خالی بگذارید' : '/'" style="display:block;width:100%;margin-top:5px"/>
+    </label>
+    <label style="display:block">{{editing ? 'توکن جدید (اختیاری)' : 'API Token'}}
+      <a-input-password v-model="form.apiToken" :placeholder="editing ? 'خالی = حفظ توکن فعلی' : (form.agentMode ? 'AMIN_NODE_TOKEN' : 'توکن دسترسی پنل سنایی')" style="display:block;width:100%;margin-top:5px"/>
+    </label>
+    <label style="display:block">اعتبار TLS
+      <a-select v-model="form.tlsVerifyMode" style="display:block;width:100%;margin-top:5px">
+        <a-select-option value="system">اعتبارسنجی استاندارد</a-select-option>
+        <a-select-option value="insecure">بدون اعتبارسنجی (ناامن)</a-select-option>
+        <a-select-option value="pinned">گواهی Pin شده</a-select-option>
+      </a-select>
+    </label>
+    <label v-if="form.tlsVerifyMode==='pinned'" style="display:block">SHA-256 Fingerprint
+      <a-input v-model="form.pinnedCertSha256" style="display:block;width:100%;margin-top:5px"/>
+    </label>
+    <label style="display:block">Inbound Sync
+      <a-select v-model="form.inboundSyncMode" style="display:block;width:100%;margin-top:5px">
+        <a-select-option value="all">همه Inboundها</a-select-option>
+        <a-select-option value="tag">بر اساس Tag</a-select-option>
+        <a-select-option value="none">غیرفعال</a-select-option>
+      </a-select>
+    </label>
+    <label v-if="form.inboundSyncMode==='tag'" style="display:block">Inbound Tags
+      <a-input v-model="form.inboundTags" placeholder="tag1,tag2" style="display:block;width:100%;margin-top:5px"/>
+    </label>
+    <div style="display:flex;gap:24px;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:8px"><a-switch v-model="form.enable"/> وضعیت فعال</label>
+      <label style="display:flex;align-items:center;gap:8px"><a-switch v-model="form.allowPrivateAddress"/> اجازه آدرس خصوصی</label>
+    </div>
+  </div>
 </a-modal>
 {{ template "page/shell_end" . }}
 {{ template "page/body_scripts" . }}
