@@ -337,7 +337,7 @@ func (m *ConfigManager) AddClient(tag string, client map[string]interface{}) err
 		case "trojan":
 			if stringField(client, "password") == "" { return nil, errors.New("client password is required for trojan") }
 		case "shadowsocks":
-			if stringField(client, "password") == "" || stringField(client, "method") == "" { return nil, errors.New("client password and method are required for shadowsocks") }
+			if stringField(client, "password") == "" { return nil, errors.New("client password is required for shadowsocks") }
 		default:
 			return nil, errors.New("unsupported inbound protocol for client management")
 		}
