@@ -1,0 +1,67 @@
+name: AMIN Node Agent CI
+
+on:
+  pull_request:
+    paths:
+      - "node-agent/**"
+      - ".github/workflows/amin-node-agent.yml"
+  push:
+    branches:
+      - "feat/amin-native-node-api"
+    paths:
+      - "node-agent/**"
+      - ".github/workflows/amin-node-agent.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Go tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: node-agent
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: node-agent/go.mod
+      - name: Verify formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Run tests
+        run: go test -race ./...
+
+  build:
+    name: Build Linux ${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goarch: [amd64, arm64]
+    defaults:
+      run:
+        working-directory: node-agent
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: node-agent/go.mod
+      - name: Build
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p dist
+          go build -trimpath -ldflags="-s -w" -o dist/amin-node-agent ./cmd/amin-node-agent
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: amin-node-agent-linux-${{ matrix.goarch }}
+          path: node-agent/dist/amin-node-agent
+          if-no-files-found: error
