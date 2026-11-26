@@ -20,6 +20,7 @@ import (
 
  "github.com/mhsanaei/3x-ui/v2/database"
  "github.com/mhsanaei/3x-ui/v2/database/model"
+ "github.com/mhsanaei/3x-ui/v2/util/nodetoken"
  "github.com/mhsanaei/3x-ui/v2/logger"
  "github.com/mhsanaei/3x-ui/v2/web/websocket"
  "gorm.io/gorm"
@@ -104,6 +105,8 @@ func nodeRequest(ctx context.Context, n model.Node, method, endpoint string) (js
 // timeout, redirect, and response-size protections used by node synchronization.
 func nodeRequestBody(ctx context.Context, n model.Node, method, endpoint string, body []byte) (json.RawMessage, error) {
  if n.ApiToken == "" { return nil, fmt.Errorf("node API token is missing") }
+ token, tokenErr := nodetoken.Decrypt(n.ApiToken)
+ if tokenErr != nil { return nil, fmt.Errorf("load node API token: %w", tokenErr) }
  if n.Port < 1 || n.Port > 65535 { return nil, fmt.Errorf("invalid node port") }
  scheme := n.Scheme
  if scheme != "http" && scheme != "https" { return nil, fmt.Errorf("unsupported node scheme") }
@@ -141,7 +144,7 @@ func nodeRequestBody(ctx context.Context, n model.Node, method, endpoint string,
  if err != nil { return nil, err }
  req.Header.Set("Accept", "application/json")
  if body != nil { req.Header.Set("Content-Type", "application/json") }
- req.Header.Set("Authorization", "Bearer " + n.ApiToken)
+ req.Header.Set("Authorization", "Bearer " + token)
  transport := &http.Transport{
   TLSClientConfig: &tls.Config{
    MinVersion: tls.VersionTLS12,
