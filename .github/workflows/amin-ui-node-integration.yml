@@ -44,8 +44,12 @@ jobs:
         run: go build ./...
       - name: Race-test node integration and model packages
         run: go test -race ./web/job ./database/model
+      - name: Prepare controller test log directory
+        run: mkdir -p "$RUNNER_TEMP/vpn-ui-logs"
       - name: Test controller package
         # The existing controller suite starts asynchronous Xray processes and reinitializes
         # the package-global logger; keep its behavioral tests, but do not race-instrument
         # that unrelated legacy test harness.
         run: go test ./web/controller
+        env:
+          VPNUI_LOG_FOLDER: ${{ runner.temp }}/vpn-ui-logs
