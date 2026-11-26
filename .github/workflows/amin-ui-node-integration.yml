@@ -38,8 +38,8 @@ jobs:
           cache: true
       - name: Prepare optional embedded runtime directories
         run: |
-          mkdir -p bin core
-          touch bin/.keep core/.keep
+          mkdir -p backend/bin corebundle/core
+          touch backend/bin/.gitkeep corebundle/core/.gitkeep
       - name: Compile all packages
         run: go build ./...
       - name: Test node integration packages
