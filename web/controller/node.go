@@ -163,12 +163,12 @@ func (a *NodeController) probe(c *gin.Context) {
 
  
 type nodeCreateClientRequest struct {
- InboundID int `json:"inboundId"`
- Email string `json:"email"`
- TotalGB int64 `json:"totalGB"`
- Months int `json:"months"`
- Days int `json:"days"`
- Flow string `json:"flow"`
+ InboundID int `form:"inboundId" json:"inboundId"`
+ Email string `form:"email" json:"email"`
+ TotalGB int64 `form:"totalGB" json:"totalGB"`
+ Months int `form:"months" json:"months"`
+ Days int `form:"days" json:"days"`
+ Flow string `form:"flow" json:"flow"`
 }
 
 // createClient provisions a client directly on the selected remote inbound.
@@ -188,7 +188,7 @@ func (a *NodeController) createClient(c *gin.Context) {
   return
  }
  var req nodeCreateClientRequest
- if err = c.ShouldBindJSON(&req); err != nil {
+ if err = c.ShouldBind(&req); err != nil {
   c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "invalid request"})
   return
  }
