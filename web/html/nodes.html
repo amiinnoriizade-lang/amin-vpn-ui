@@ -146,7 +146,7 @@
     <label style="display:block">Base Path
       <a-input v-model="form.basePath" :placeholder="form.agentMode ? 'خالی بگذارید' : '/'" style="display:block;width:100%;margin-top:5px"/>
     </label>
-    <label style="display:block">{{editing ? 'توکن جدید (اختیاری)' : 'API Token'}}
+    <label style="display:block">[[ editing ? 'توکن جدید (اختیاری)' : 'API Token' ]]
       <a-input-password v-model="form.apiToken" :placeholder="editing ? 'خالی = حفظ توکن فعلی' : (form.agentMode ? 'AMIN_NODE_TOKEN' : 'توکن دسترسی پنل سنایی')" style="display:block;width:100%;margin-top:5px"/>
     </label>
     <label style="display:block">اعتبار TLS
