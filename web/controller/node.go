@@ -162,6 +162,7 @@ func (a *NodeController) probe(c *gin.Context) {
 }
 
  
+// Accepts both JSON and form-encoded payloads from the shared HttpUtil client.
 type nodeCreateClientRequest struct {
  InboundID int `form:"inboundId" json:"inboundId"`
  Email string `form:"email" json:"email"`
