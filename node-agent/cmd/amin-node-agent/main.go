@@ -162,7 +162,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", method(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, envelope{Success: true, Obj: map[string]interface{}{
-			"service": "amin-node-agent", "version": "0.2.1", "uptimeSeconds": int64(time.Since(started).Seconds()),
+			"service": "amin-node-agent", "version": "0.2.2", "uptimeSeconds": int64(time.Since(started).Seconds()),
 		}})
 	}))
 	protected := http.NewServeMux()
@@ -170,7 +170,7 @@ func main() {
 		features := []string{"health", "system", "capabilities"}
 		if manager != nil { features = append(features, "inbounds.list", "inbounds.create", "inbounds.delete", "clients.create", "clients.delete") }
 		writeJSON(w, http.StatusOK, envelope{Success: true, Obj: map[string]interface{}{
-			"agentVersion": "0.2.1", "xrayManagement": manager != nil, "features": features,
+			"agentVersion": "0.2.2", "xrayManagement": manager != nil, "features": features,
 			"protocols": []string{"vless", "vmess", "trojan", "shadowsocks"},
 		}})
 	}))
@@ -187,6 +187,6 @@ func main() {
 	protected.HandleFunc("/api/v1/inbounds/", inboundAPI(manager))
 	mux.Handle("/api/v1/", auth(token, protected))
 	server := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
-	log.Printf("AMIN Node Agent 0.2.1 listening on %s", addr)
+	log.Printf("AMIN Node Agent 0.2.2 listening on %s", addr)
 	log.Fatal(server.ListenAndServe())
 }
