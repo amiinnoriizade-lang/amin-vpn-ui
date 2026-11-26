@@ -5,7 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"testing"
+	"testing"\n\t"syscall"
 )
 
 func testManager(t *testing.T, cfg map[string]interface{}) *ConfigManager {
@@ -55,4 +55,40 @@ func TestAddClientRejectsUnknownFields(t *testing.T) {
 	m := testManager(t, map[string]interface{}{"inbounds": []interface{}{}})
 	err := m.AddClient("in", map[string]interface{}{"email":"x","shell":"rm -rf /"})
 	if err == nil { t.Fatal("expected unknown field error") }
+}
+
+func TestPreserveFileMetadata(t *testing.T) {
+	dir := t.TempDir()
+	originalPath := filepath.Join(dir, "original.json")
+	stagedPath := filepath.Join(dir, "staged.json")
+	if err := os.WriteFile(originalPath, []byte("{}"), 0640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(originalPath, 0640); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(originalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stagedPath, []byte("{\"inbounds\":[]}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := preserveFileMetadata(stagedPath, info); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.Stat(stagedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Mode().Perm() != info.Mode().Perm() {
+		t.Fatalf("permissions not preserved: got %04o want %04o", got.Mode().Perm(), info.Mode().Perm())
+	}
+	want, ok := info.Sys().(*syscall.Stat_t)
+	if !ok { t.Fatal("original metadata is not syscall.Stat_t") }
+	have, ok := got.Sys().(*syscall.Stat_t)
+	if !ok { t.Fatal("staged metadata is not syscall.Stat_t") }
+	if have.Uid != want.Uid || have.Gid != want.Gid {
+		t.Fatalf("ownership not preserved: got %d:%d want %d:%d", have.Uid, have.Gid, want.Uid, want.Gid)
+	}
 }
