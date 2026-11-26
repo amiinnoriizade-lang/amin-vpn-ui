@@ -5,16 +5,19 @@ package database
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"log"
 	"os"
 	"path"
 	"slices"
+	"strings"
 
 	"github.com/mhsanaei/3x-ui/v2/config"
 	"github.com/mhsanaei/3x-ui/v2/database/model"
 	"github.com/mhsanaei/3x-ui/v2/util/crypto"
+	"github.com/mhsanaei/3x-ui/v2/util/nodetoken"
 	"github.com/mhsanaei/3x-ui/v2/xray"
 
 	"gorm.io/driver/sqlite"
@@ -55,6 +58,37 @@ func initModels() error {
 		if err := db.AutoMigrate(model); err != nil {
 			log.Printf("Error auto migrating model: %v", err)
 			return err
+		}
+	}
+	if err := migrateNodeAPITokens(); err != nil {
+		return fmt.Errorf("migrate node API token encryption: %w", err)
+	}
+	return nil
+}
+
+// migrateNodeAPITokens upgrades legacy plaintext node credentials at startup.
+// The key lives outside the database; a lost key is never silently regenerated
+// when encrypted rows already exist.
+func migrateNodeAPITokens() error {
+	var nodes []model.Node
+	if err := db.Select("id", "api_token").Where("api_token <> ?", "").Find(&nodes).Error; err != nil {
+		return err
+	}
+	for _, node := range nodes {
+		if strings.HasPrefix(node.ApiToken, "enc:v1:") {
+			if _, err := nodetoken.Decrypt(node.ApiToken); err != nil {
+				return fmt.Errorf("node %d token: %w", node.Id, err)
+			}
+			continue
+		}
+		encrypted, err := nodetoken.Encrypt(node.ApiToken)
+		if err != nil {
+			return fmt.Errorf("encrypt node %d token: %w", node.Id, err)
+		}
+		if err := db.Model(&model.Node{}).
+			Where("id = ? AND api_token = ?", node.Id, node.ApiToken).
+			Update("api_token", encrypted).Error; err != nil {
+			return fmt.Errorf("save encrypted token for node %d: %w", node.Id, err)
 		}
 	}
 	return nil
