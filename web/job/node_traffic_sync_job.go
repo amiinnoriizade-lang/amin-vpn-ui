@@ -112,6 +112,9 @@ func nodeRequestBody(ctx context.Context, n model.Node, method, endpoint string,
  ips, err := net.LookupIP(host)
  if err != nil || len(ips) == 0 { return nil, fmt.Errorf("resolve node address: %w", err) }
  for _, ip := range ips {
+  if n.AgentMode && scheme == "http" && !(ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast()) {
+   return nil, fmt.Errorf("AMIN Agent HTTP is allowed only over a private management tunnel; use HTTPS for public addresses")
+  }
   if !n.AllowPrivateAddress && !nodeAddressAllowed(ip) {
    return nil, fmt.Errorf("private or reserved node address blocked")
   }
@@ -239,6 +242,7 @@ func nodeSpeedDelta(previous map[string]nodeCounterSample, current map[string]*n
 }
 
 func (j *NodeTrafficSyncJob) syncNode(n model.Node, now int64) ([]nodeClientDelta, []string, map[string]int64, error) {
+ if n.AgentMode { return syncNativeAgentNode(n, now) }
  raw, err := nodeRequest(context.Background(), n, http.MethodGet, "panel/api/inbounds/list")
  if err != nil { return nil, nil, nil, fmt.Errorf("fetch inbounds: %w", err) }
  var inbounds []remoteInboundSnapshot
