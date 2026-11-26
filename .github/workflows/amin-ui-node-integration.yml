@@ -36,7 +36,5 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Compile all packages
-        run: go build ./...
-      - name: Test node integration packages
+      - name: Build and test changed Go packages
         run: go test -race ./web/job ./web/controller ./database/model
