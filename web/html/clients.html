@@ -1243,8 +1243,16 @@
           r=await HttpUtil.post('/panel/api/nodes/clients/update/'+f.nodeId+'/'+encodeURIComponent(f.email),
             {totalBytes:(f.totalGB===f.originalTotalGB?f.totalBytes:f.totalGB*1073741824),expiryTime,enable:f.enable});
         } else {
+          const inboundId=Number(f.inboundId);
+          const totalGB=Number(f.totalGB)||0;
+          const days=Number(f.days)||0;
+          if (!Number.isSafeInteger(inboundId) || inboundId<1 || !Number.isFinite(totalGB) || totalGB<0 || !Number.isInteger(days) || days<0) {
+            this.$message.warning('مقادیر Inbound، حجم و اعتبار نامعتبر است');
+            this.nodeClientSaving=false;
+            return;
+          }
           r=await HttpUtil.post('/panel/api/nodes/createClient/'+f.nodeId,
-            {inboundId:f.inboundId,email:f.email,totalGB:f.totalGB,days:f.days,flow:f.flow||''});
+            {inboundId,email:f.email,totalGB,days,months:0,flow:f.flow||''});
         }
         this.nodeClientSaving=false;
         if (r&&r.success) {
