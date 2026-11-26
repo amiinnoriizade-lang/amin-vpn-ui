@@ -7,7 +7,7 @@ Compatibility: existing Sanaei nodes remain supported during migration. Native n
 
 - AMIN-UI Core is the control plane: node registry, users/plans, desired state, credentials, audit trail and public management API.
 - AMIN Node Agent runs on each managed server and owns the local Xray process/configuration.
-- Core-to-agent traffic is HTTPS only and authenticated with a per-node bearer token. Tokens are generated per node, stored hashed at rest by Core, shown once, rotatable and revocable.
+- Core-to-agent traffic is authenticated with a per-node bearer token. Public endpoints must use HTTPS; plain HTTP is accepted only for an explicitly trusted private management tunnel (for example, a loopback SSH forward). The current Agent 0.2.1 integration stores the token in the existing node record and never serializes it to the browser. Hashed-at-rest enrollment, one-time display, rotation and revocation remain follow-up work.
 - The agent binds to loopback by default; deployments expose it only through TLS/reverse proxy or a private management network.
 - Agent requests have bounded body sizes and timeouts. Mutating operations are idempotent and audited by Core.
 
@@ -51,8 +51,8 @@ Sanaei nodes remain a separate adapter. Existing node records are not silently c
 2. Implement agent health/capabilities/system endpoints and enrollment.
 3. Implement safe Xray config transaction layer.
 4. Implement inbound/client CRUD and share-link generation.
-5. Add Core-side native adapter, node type selector and API keys.
-6. Add UI, audit log, traffic synchronization and migration tooling.
+5. Add Core-side native adapter, node type selector, inbound synchronization and VLESS/VMess/Trojan client create/delete.
+6. Add Agent-side connection URI/QR generation, client updates, traffic counters, audit log and migration tooling.
 
 ## Security requirements
 
