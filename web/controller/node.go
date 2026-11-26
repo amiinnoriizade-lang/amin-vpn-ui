@@ -384,6 +384,49 @@ func (a *NodeController) deleteNodeClient(c *gin.Context) {
 }
 
 
+
+// Sanaei versions differ in whether API data is returned directly or wrapped in
+// the standard {success, msg, obj} envelope. Normalize both forms here.
+func decodeNodeRemoteClient(raw []byte) (map[string]any, error) {
+ var root map[string]any
+ if err := json.Unmarshal(raw, &root); err != nil { return nil, err }
+ if ok, exists := root["success"].(bool); exists && !ok {
+  return nil, fmt.Errorf("%v", root["msg"])
+ }
+ for _, key := range []string{"obj", "client", "data"} {
+  if nested, ok := root[key].(map[string]any); ok {
+   if inner, ok := nested["client"].(map[string]any); ok { return inner, nil }
+   return nested, nil
+  }
+ }
+ return root, nil
+}
+
+func decodeNodeRemoteInbounds(raw []byte) ([]map[string]any, error) {
+ var direct []map[string]any
+ if err := json.Unmarshal(raw, &direct); err == nil && direct != nil { return direct, nil }
+ var root map[string]any
+ if err := json.Unmarshal(raw, &root); err != nil { return nil, err }
+ if ok, exists := root["success"].(bool); exists && !ok {
+  return nil, fmt.Errorf("%v", root["msg"])
+ }
+ for _, key := range []string{"obj", "inbounds", "data"} {
+  value, exists := root[key]
+  if !exists { continue }
+  if nested, ok := value.(map[string]any); ok {
+   for _, innerKey := range []string{"inbounds", "obj", "list"} {
+    if arr, ok := nested[innerKey].([]any); ok { value = arr; break }
+   }
+  }
+  if arr, ok := value.([]any); ok {
+   out := make([]map[string]any, 0, len(arr))
+   for _, item := range arr { if m, ok := item.(map[string]any); ok { out = append(out, m) } }
+   return out, nil
+  }
+ }
+ return nil, fmt.Errorf("inbound array not found in API response")
+}
+
 // nodeClientConfig fetches live Sanaei credentials and builds a share URI without
 // persisting UUIDs/passwords in the local database.
 func (a *NodeController) nodeClientConfig(c *gin.Context) {
@@ -398,20 +441,13 @@ func (a *NodeController) nodeClientConfig(c *gin.Context) {
  ctx, cancel := context.WithTimeout(c.Request.Context(), 12*time.Second); defer cancel()
  rawClient, err := job.ManageNodeClient(ctx, n, http.MethodGet, "panel/api/clients/get/"+url.PathEscape(email), nil)
  if err != nil { c.JSON(http.StatusBadGateway, gin.H{"success":false,"msg":"دریافت اطلاعات زنده کاربر از سنایی ناموفق بود: "+err.Error()}); return }
- var clientEnvelope map[string]any
- if err = json.Unmarshal(rawClient, &clientEnvelope); err != nil { c.JSON(http.StatusBadGateway, gin.H{"success":false,"msg":"ساختار اطلاعات کاربر نامعتبر است"}); return }
- client := clientEnvelope
- if nested, ok := clientEnvelope["client"].(map[string]any); ok { client = nested }
- if strings.ToLower(strings.TrimSpace(fmt.Sprint(client["email"]))) != email { c.JSON(http.StatusBadGateway, gin.H{"success":false,"msg":"کاربر برگشتی با نام درخواستی مطابقت ندارد"}); return }
+ client, err := decodeNodeRemoteClient(rawClient)
+ if err != nil { c.JSON(http.StatusBadGateway, gin.H{"success":false,"msg":"ساختار پاسخ کاربر سنایی نامعتبر است: "+err.Error()}); return }
+ if strings.ToLower(strings.TrimSpace(fmt.Sprint(client["email"]))) != email { c.JSON(http.StatusBadGateway, gin.H{"success":false,"msg":"پاسخ سنایی شامل اطلاعات همین کاربر نیست"}); return }
  rawInbounds, err := job.ManageNodeClient(ctx, n, http.MethodGet, "panel/api/inbounds/list", nil)
  if err != nil { c.JSON(http.StatusBadGateway, gin.H{"success":false,"msg":"دریافت تنظیمات Inbound ناموفق بود: "+err.Error()}); return }
- var inbounds []map[string]any
- if err = json.Unmarshal(rawInbounds, &inbounds); err != nil {
-  var wrapper map[string]any
-  if json.Unmarshal(rawInbounds, &wrapper) == nil {
-   if arr, ok := wrapper["inbounds"].([]any); ok { for _, v := range arr { if m,ok:=v.(map[string]any);ok { inbounds=append(inbounds,m) } } }
-  }
- }
+ inbounds, err := decodeNodeRemoteInbounds(rawInbounds)
+ if err != nil { c.JSON(http.StatusBadGateway, gin.H{"success":false,"msg":"ساختار فهرست Inbound سنایی نامعتبر است: "+err.Error()}); return }
  var chosen map[string]any
  // Prefer explicit inboundIds returned by the remote client API.
  ids, _ := client["inboundIds"].([]any)
@@ -430,7 +466,7 @@ func (a *NodeController) nodeClientConfig(c *gin.Context) {
    case map[string]any: settings = value
    }
    clients, _ := settings["clients"].([]any)
-   for _, item := range clients { if cm,ok:=item.(map[string]any);ok && strings.EqualFold(strings.TrimSpace(fmt.Sprint(cm["email"])),email) { chosen=ib; if client["id"]==nil { for k,v:=range cm { client[k]=v } }; break } }
+   for _, item := range clients { if cm,ok:=item.(map[string]any);ok && strings.EqualFold(strings.TrimSpace(fmt.Sprint(cm["email"])),email) { chosen=ib; for k,v:=range cm { current:=strings.TrimSpace(fmt.Sprint(client[k])); if client[k]==nil || current=="" || current=="<nil>" { client[k]=v } }; break } }
    if chosen!=nil { break }
   }
  }
