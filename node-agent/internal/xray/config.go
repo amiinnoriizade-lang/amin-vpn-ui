@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -117,6 +118,10 @@ func (m *ConfigManager) validateAndApply(cfg map[string]interface{}) error {
 		return fmt.Errorf("Xray rejected config: %s", strings.TrimSpace(string(out)))
 	}
 
+	originalInfo, err := os.Stat(m.Path)
+	if err != nil {
+		return err
+	}
 	original, err := os.ReadFile(m.Path)
 	if err != nil {
 		return err
@@ -142,21 +147,52 @@ func (m *ConfigManager) validateAndApply(cfg map[string]interface{}) error {
 	if err := newFile.Close(); err != nil {
 		return err
 	}
-	if err := os.Chmod(newPath, 0600); err != nil {
-		return err
+	if err := preserveFileMetadata(newPath, originalInfo); err != nil {
+		return fmt.Errorf("preserve Xray config ownership and permissions: %w", err)
 	}
 	if err := os.Rename(newPath, m.Path); err != nil {
 		return err
 	}
 	restart := exec.Command("systemctl", "restart", m.Service)
 	if out, err := restart.CombinedOutput(); err != nil {
-		_ = os.WriteFile(m.Path+".rollback", original, 0600)
-		_ = os.Rename(m.Path+".rollback", m.Path)
+		rollbackPath := m.Path + ".rollback"
+		if writeErr := os.WriteFile(rollbackPath, original, 0600); writeErr == nil {
+			if metaErr := preserveFileMetadata(rollbackPath, originalInfo); metaErr == nil {
+				_ = os.Rename(rollbackPath, m.Path)
+			} else {
+				_ = os.Remove(rollbackPath)
+			}
+		}
 		rollback := exec.Command("systemctl", "restart", m.Service)
 		_, _ = rollback.CombinedOutput()
 		return fmt.Errorf("Xray restart failed; previous config restored: %s", strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+
+// preserveFileMetadata applies the existing config's owner, group, and permission
+// bits to an atomically staged replacement before it becomes the live file.
+func preserveFileMetadata(path string, original os.FileInfo) error {
+	stat, ok := original.Sys().(*syscall.Stat_t)
+	if !ok {
+		return errors.New("unsupported config file metadata")
+	}
+	current, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	currentStat, ok := current.Sys().(*syscall.Stat_t)
+	if !ok {
+		return errors.New("unsupported staged file metadata")
+	}
+	if currentStat.Uid != stat.Uid || currentStat.Gid != stat.Gid {
+		if err := os.Chown(path, int(stat.Uid), int(stat.Gid)); err != nil {
+			return err
+		}
+	}
+	// Chown may clear special bits, so apply permissions after ownership.
+	return os.Chmod(path, original.Mode().Perm())
 }
 
 func mustJSON(v interface{}) []byte {
