@@ -271,7 +271,7 @@ func (m *ConfigManager) DeleteInbound(tag string) error {
 	return m.validateAndApply(cfg)
 }
 
-func (m *ConfigManager) mutateClients(tag string, mutate func([]interface{}) ([]interface{}, error)) error {
+func (m *ConfigManager) mutateClients(tag string, mutate func(string, []interface{}) ([]interface{}, error)) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	cfg, err := m.read()
@@ -293,22 +293,6 @@ func (m *ConfigManager) mutateClients(tag string, mutate func([]interface{}) ([]
 		}
 		found = true
 		protocol := stringField(in, "protocol")
-		switch protocol {
-		case "vless", "vmess":
-			if stringField(client, "id") == "" {
-				return errors.New("client id (UUID) is required for vless/vmess")
-			}
-		case "trojan":
-			if stringField(client, "password") == "" {
-				return errors.New("client password is required for trojan")
-			}
-		case "shadowsocks":
-			if stringField(client, "password") == "" || stringField(client, "method") == "" {
-				return errors.New("client password and method are required for shadowsocks")
-			}
-		default:
-			return errors.New("unsupported inbound protocol for client management")
-		}
 		settings, ok := in["settings"].(map[string]interface{})
 		if !ok {
 			return errors.New("inbound settings are invalid")
@@ -320,7 +304,7 @@ func (m *ConfigManager) mutateClients(tag string, mutate func([]interface{}) ([]
 				return errors.New("inbound clients must be an array")
 			}
 		}
-		updated, err := mutate(clients)
+		updated, err := mutate(protocol, clients)
 		if err != nil {
 			return err
 		}
@@ -346,7 +330,17 @@ func (m *ConfigManager) AddClient(tag string, client map[string]interface{}) err
 	if len(client) == 0 {
 		return errors.New("client fields are required")
 	}
-	return m.mutateClients(tag, func(clients []interface{}) ([]interface{}, error) {
+	return m.mutateClients(tag, func(protocol string, clients []interface{}) ([]interface{}, error) {
+		switch protocol {
+		case "vless", "vmess":
+			if stringField(client, "id") == "" { return nil, errors.New("client id (UUID) is required for vless/vmess") }
+		case "trojan":
+			if stringField(client, "password") == "" { return nil, errors.New("client password is required for trojan") }
+		case "shadowsocks":
+			if stringField(client, "password") == "" || stringField(client, "method") == "" { return nil, errors.New("client password and method are required for shadowsocks") }
+		default:
+			return nil, errors.New("unsupported inbound protocol for client management")
+		}
 		for _, raw := range clients {
 			existing, ok := raw.(map[string]interface{})
 			if !ok {
@@ -364,7 +358,7 @@ func (m *ConfigManager) DeleteClient(tag, email string) error {
 	if email == "" || len(email) > 128 || strings.ContainsAny(email, "\r\n") {
 		return errors.New("invalid client email")
 	}
-	return m.mutateClients(tag, func(clients []interface{}) ([]interface{}, error) {
+	return m.mutateClients(tag, func(_ string, clients []interface{}) ([]interface{}, error) {
 		next := make([]interface{}, 0, len(clients))
 		found := false
 		for _, raw := range clients {
