@@ -46,6 +46,17 @@ func TestAddClientRequiresProtocolCredential(t *testing.T) {
 	if err == nil { t.Fatal("expected UUID validation error") }
 }
 
+func TestAddClientValidatesUUIDAndDuplicateCredentials(t *testing.T) {
+	base := map[string]interface{}{"inbounds": []interface{}{
+		map[string]interface{}{"tag":"vless-in","protocol":"vless","settings":map[string]interface{}{"clients":[]interface{}{
+			map[string]interface{}{"email":"existing","id":"00000000-0000-4000-8000-000000000001"},
+		}}},
+	}}
+	m := testManager(t, base)
+	if err := m.AddClient("vless-in", map[string]interface{}{"email":"bad-id","id":"not-a-uuid"}); err == nil { t.Fatal("expected malformed UUID to be rejected") }
+	if err := m.AddClient("vless-in", map[string]interface{}{"email":"duplicate-id","id":"00000000-0000-4000-8000-000000000001"}); err == nil { t.Fatal("expected duplicate UUID to be rejected") }
+	if err := m.AddClient("vless-in", map[string]interface{}{"email":"bad email","id":"00000000-0000-4000-8000-000000000002"}); err == nil { t.Fatal("expected whitespace in email to be rejected") }
+}
 func TestDeleteMissingInbound(t *testing.T) {
 	m := testManager(t, map[string]interface{}{"inbounds": []interface{}{}})
 	err := m.DeleteInbound("not-found")
