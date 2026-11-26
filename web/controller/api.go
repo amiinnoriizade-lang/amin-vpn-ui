@@ -42,11 +42,8 @@ func (a *APIController) initRouter(g *gin.RouterGroup, customGeo *service.Custom
  customGeoGroup:=api.Group("/custom-geo")
  customGeoGroup.Use(requireXrayOrOverviewManage())
  NewCustomGeoController(customGeoGroup,customGeo)
- // Node configuration is a super-admin capability: node API tokens grant
- // control of remote servers and must not be exposed to delegated panel admins.
- nodes:=api.Group("/nodes")
- nodes.Use(requireSuperAdmin())
- NewNodeController(nodes)
+ // Native node routes are registered by XUIController under /panel/api/nodes.
+ // Registering them here as well causes Gin to panic on duplicate paths.
  api.GET("/backuptotgbot",requireOverviewManage(),a.BackuptoTgbot)
 }
 
