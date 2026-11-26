@@ -60,3 +60,17 @@ func TestRejectsOverPermissiveKeyFile(t *testing.T) {
 		t.Fatal("expected permissive key file to be rejected")
 	}
 }
+
+func TestDecryptDoesNotSilentlyReplaceMissingKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "node-token.key")
+	t.Setenv("VPNUI_NODE_TOKEN_KEY_FILE", path)
+	encrypted, err := Encrypt("secret-token")
+	if err != nil { t.Fatal(err) }
+	if err := os.Remove(path); err != nil { t.Fatal(err) }
+	if _, err := Decrypt(encrypted); err == nil {
+		t.Fatal("expected missing key to fail decryption")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("decrypt unexpectedly generated a replacement key")
+	}
+}
