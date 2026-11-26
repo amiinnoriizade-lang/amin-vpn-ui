@@ -317,7 +317,7 @@ func (m *ConfigManager) mutateClients(tag string, mutate func(string, []interfac
 }
 
 func (m *ConfigManager) AddClient(tag string, client map[string]interface{}) error {
-	allowed := map[string]bool{"email": true, "id": true, "level": true, "flow": true, "alterId": true, "security": true, "password": true, "method": true}
+	allowed := map[string]bool{"email": true, "id": true, "level": true, "flow": true, "alterId": true, "security": true, "password": true}
 	for key := range client {
 		if !allowed[key] {
 			return fmt.Errorf("unsupported client field: %s", key)
