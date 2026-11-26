@@ -1,4 +1,4 @@
-package main
+package xray
 
 import (
 	"bytes"
@@ -292,6 +292,23 @@ func (m *ConfigManager) mutateClients(tag string, mutate func([]interface{}) ([]
 			continue
 		}
 		found = true
+		protocol := stringField(in, "protocol")
+		switch protocol {
+		case "vless", "vmess":
+			if stringField(client, "id") == "" {
+				return errors.New("client id (UUID) is required for vless/vmess")
+			}
+		case "trojan":
+			if stringField(client, "password") == "" {
+				return errors.New("client password is required for trojan")
+			}
+		case "shadowsocks":
+			if stringField(client, "password") == "" || stringField(client, "method") == "" {
+				return errors.New("client password and method are required for shadowsocks")
+			}
+		default:
+			return errors.New("unsupported inbound protocol for client management")
+		}
 		settings, ok := in["settings"].(map[string]interface{})
 		if !ok {
 			return errors.New("inbound settings are invalid")
@@ -316,6 +333,12 @@ func (m *ConfigManager) mutateClients(tag string, mutate func([]interface{}) ([]
 }
 
 func (m *ConfigManager) AddClient(tag string, client map[string]interface{}) error {
+	allowed := map[string]bool{"email": true, "id": true, "level": true, "flow": true, "alterId": true, "security": true, "password": true, "method": true}
+	for key := range client {
+		if !allowed[key] {
+			return fmt.Errorf("unsupported client field: %s", key)
+		}
+	}
 	email := stringField(client, "email")
 	if email == "" || len(email) > 128 || strings.ContainsAny(email, "\r\n") {
 		return errors.New("client email is required and must be valid")
