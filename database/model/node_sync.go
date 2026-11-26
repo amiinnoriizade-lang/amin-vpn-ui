@@ -7,6 +7,7 @@ type NodeInboundSnapshot struct {
  NodeID int `json:"nodeId" gorm:"uniqueIndex:idx_node_remote_inbound,priority:1;index"`
  RemoteID int `json:"remoteId" gorm:"uniqueIndex:idx_node_remote_inbound,priority:2"`
  Tag string `json:"tag"`
+ RemoteTag string `json:"remoteTag" gorm:"size:128"`
  Remark string `json:"remark"`
  Protocol string `json:"protocol"`
  Listen string `json:"listen"`
