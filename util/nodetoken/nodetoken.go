@@ -98,7 +98,7 @@ func Encrypt(token string) (string, error) {
 		}
 		return token, nil
 	}
-	key, err := loadKey(false)
+	key, err := loadKey(true)
 	if err != nil {
 		return "", err
 	}
@@ -124,7 +124,7 @@ func Decrypt(token string) (string, error) {
 	if !strings.HasPrefix(token, prefix) {
 		return token, nil
 	}
-	key, err := loadKey()
+	key, err := loadKey(false)
 	if err != nil {
 		return "", err
 	}
