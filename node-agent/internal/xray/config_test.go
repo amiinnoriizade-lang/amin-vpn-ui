@@ -5,7 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"testing"\n\t"syscall"
+	"testing"
+	"syscall"
 )
 
 func testManager(t *testing.T, cfg map[string]interface{}) *ConfigManager {
