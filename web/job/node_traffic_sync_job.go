@@ -166,7 +166,7 @@ func nodeRequestBody(ctx context.Context, n model.Node, method, endpoint string,
  resp, err := client.Do(req)
  if err != nil { return nil, err }
  defer resp.Body.Close()
- if resp.StatusCode != http.StatusOK { return nil, fmt.Errorf("remote API returned HTTP %d", resp.StatusCode) }
+ if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices { return nil, fmt.Errorf("remote API returned HTTP %d", resp.StatusCode) }
  raw, err := io.ReadAll(io.LimitReader(resp.Body, nodeTrafficResponseLimit+1))
  if err != nil { return nil, err }
  if len(raw) > nodeTrafficResponseLimit { return nil, fmt.Errorf("remote response exceeds %d bytes", nodeTrafficResponseLimit) }
