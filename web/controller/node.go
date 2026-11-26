@@ -11,6 +11,7 @@ import (
  "context"
 
 
+ "github.com/google/uuid"
  "github.com/mhsanaei/3x-ui/v2/web/job"
  "github.com/mhsanaei/3x-ui/v2/web/websocket"
  "strconv"
@@ -34,6 +35,7 @@ type nodeMutation struct {
  Port int `form:"port" json:"port"`
  BasePath string `form:"basePath" json:"basePath"`
  ApiToken string `form:"apiToken" json:"apiToken"`
+ AgentMode bool `form:"agentMode" json:"agentMode"`
  Enable *bool `form:"enable" json:"enable"`
  AllowPrivateAddress bool `form:"allowPrivateAddress" json:"allowPrivateAddress"`
  TlsVerifyMode string `form:"tlsVerifyMode" json:"tlsVerifyMode"`
@@ -78,6 +80,7 @@ func validNodeMutation(v nodeMutation, creating bool) string {
   if err!=nil || u.Hostname()=="" || u.User!=nil || u.Path!="" { return "invalid address" }
  }
  if creating && strings.TrimSpace(v.ApiToken)=="" { return "apiToken is required" }
+ if v.AgentMode && v.Scheme=="http" && !v.AllowPrivateAddress { return "AMIN Agent over HTTP requires an explicitly trusted private management tunnel; otherwise use HTTPS" }
  if v.TlsVerifyMode!="" && v.TlsVerifyMode!="system" && v.TlsVerifyMode!="insecure" && v.TlsVerifyMode!="pinned" { return "invalid tlsVerifyMode" }
  if v.TlsVerifyMode=="pinned" && len(strings.TrimSpace(v.PinnedCertSha256))!=64 { return "pinned TLS mode requires a SHA-256 certificate fingerprint" }
  return ""
@@ -95,7 +98,7 @@ func (a *NodeController) get(c *gin.Context) {
  c.JSON(http.StatusOK,gin.H{"success":true,"obj":n})
 }
 func nodeFromMutation(v nodeMutation, old model.Node) model.Node {
- old.Name=strings.TrimSpace(v.Name); old.Remark=v.Remark; old.Scheme=v.Scheme; if old.Scheme=="" {old.Scheme="https"}
+ old.Name=strings.TrimSpace(v.Name); old.Remark=v.Remark; old.AgentMode=v.AgentMode; old.Scheme=v.Scheme; if old.Scheme=="" {old.Scheme="https"}
  old.Address=strings.TrimSpace(v.Address); old.Port=v.Port; old.BasePath=strings.TrimSpace(v.BasePath)
  if v.ApiToken!="" {old.ApiToken=v.ApiToken}
  if v.Enable!=nil {old.Enable=*v.Enable} else if old.Id==0 {old.Enable=true}
@@ -228,6 +231,26 @@ func (a *NodeController) createClient(c *gin.Context) {
   c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "flow is only available for VLESS"})
   return
  }
+ if n.AgentMode {
+  if req.TotalGB != 0 || req.Months != 0 || req.Days != 0 {
+   c.JSON(http.StatusNotImplemented, gin.H{"success":false,"msg":"AMIN Node Agent 0.2.1 does not yet enforce traffic quotas or expiry; use unlimited volume and no expiry for this node"})
+   return
+  }
+  if inbound.RemoteTag=="" { c.JSON(http.StatusConflict,gin.H{"success":false,"msg":"native inbound tag is not synchronized yet; refresh the node snapshot"}); return }
+  client:=map[string]any{"email":req.Email,"level":0}
+  switch protocol {
+  case "vless","vmess": client["id"]=uuid.NewString()
+  case "trojan": client["password"]=uuid.NewString()
+  default: c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"native Agent client creation supports VLESS, VMess and Trojan"}); return
+  }
+  if req.Flow!="" { client["flow"]=req.Flow }
+  ctx,cancel:=context.WithTimeout(c.Request.Context(),12*time.Second); defer cancel()
+  if err=job.NativeAgentCreateClient(ctx,n,inbound.RemoteTag,client); err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":err.Error()}); return }
+  _=nodeDB().Where("node_id = ? AND email = ?",id,req.Email).Delete(&model.NodeClientSnapshot{}).Error
+  _=nodeDB().Create(&model.NodeClientSnapshot{NodeID:id,Email:req.Email,Enable:true,LastSyncAt:time.Now().UnixMilli()}).Error
+  c.JSON(http.StatusOK,gin.H{"success":true,"obj":gin.H{"nodeId":id,"inboundId":req.InboundID,"inbound":inbound.Remark,"protocol":protocol,"email":req.Email,"id":client["id"],"password":client["password"]}})
+  return
+ }
  expiry := int64(0)
  if req.Days > 0 {
   expiry = time.Now().AddDate(0, 0, req.Days).UnixMilli()
@@ -341,6 +364,7 @@ func validRemoteEmail(email string) bool {
 
 func (a *NodeController) updateNodeClient(c *gin.Context) {
  n,ok:=a.loadManageableNode(c); if !ok { return }
+ if n.AgentMode { c.JSON(http.StatusNotImplemented,gin.H{"success":false,"msg":"client update is not yet supported by AMIN Node Agent 0.2.1"}); return }
  email:=strings.ToLower(strings.TrimSpace(c.Param("email")))
  if !validRemoteEmail(email) { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid username"}); return }
  var exists model.NodeClientSnapshot
@@ -373,6 +397,26 @@ func (a *NodeController) updateNodeClient(c *gin.Context) {
 
 func (a *NodeController) deleteNodeClient(c *gin.Context) {
  n,ok:=a.loadManageableNode(c); if !ok { return }
+ if n.AgentMode {
+  email:=strings.ToLower(strings.TrimSpace(c.Param("email")))
+  if !validRemoteEmail(email) { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid username"}); return }
+  ctx,cancel:=context.WithTimeout(c.Request.Context(),20*time.Second); defer cancel()
+  inbounds,err:=job.NativeAgentListInbounds(ctx,n)
+  if err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":err.Error()}); return }
+  tags:=make([]string,0)
+  for _,ib:=range inbounds {
+   var settings struct { Clients []struct { Email string `json:"email"` } `json:"clients"` }
+   if len(ib.Settings)>0 { if e:=json.Unmarshal(ib.Settings,&settings); e!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"invalid client settings from native inbound "+ib.Tag}); return } }
+   for _,cl:=range settings.Clients { if strings.EqualFold(strings.TrimSpace(cl.Email),email) { tags=append(tags,ib.Tag); break } }
+  }
+  if len(tags)==0 { c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"client not found on this native node"}); return }
+  for _,tag:=range tags {
+   if err=job.NativeAgentDeleteClient(ctx,n,tag,email); err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"client deletion partially failed on inbound "+tag+": "+err.Error()}); return }
+  }
+  _=nodeDB().Where("node_id = ? AND email = ?",n.Id,email).Delete(&model.NodeClientSnapshot{}).Error
+  c.JSON(http.StatusOK,gin.H{"success":true,"obj":gin.H{"deletedFrom":tags}})
+  return
+ }
  email:=strings.TrimSpace(c.Param("email"))
  if !validRemoteEmail(email) { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid username"}); return }
  var exists model.NodeClientSnapshot
@@ -432,6 +476,7 @@ func decodeNodeRemoteInbounds(raw []byte) ([]map[string]any, error) {
 func (a *NodeController) nodeClientConfig(c *gin.Context) {
  n, ok := a.loadManageableNode(c)
  if !ok { return }
+ if n.AgentMode { c.JSON(http.StatusNotImplemented,gin.H{"success":false,"msg":"connection URI generation is not yet implemented for AMIN Node Agent nodes"}); return }
  email := strings.ToLower(strings.TrimSpace(c.Param("email")))
  if !validRemoteEmail(email) { c.JSON(http.StatusBadRequest, gin.H{"success":false,"msg":"invalid username"}); return }
  var snapshot model.NodeClientSnapshot
