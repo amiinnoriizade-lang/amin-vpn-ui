@@ -544,6 +544,32 @@ func TestMigrationAccountsHandlesEmptyPanel(t *testing.T) {
 	}
 }
 
+// Existing accounts with no legacy inbound entry are valid parked accounts.
+// They must survive the additive migration and must not make startup roll back.
+func TestMigrationAccountsPreservesExistingUnservedAccount(t *testing.T) {
+	svc := newAccountsDB(t)
+	const email = "parked-before-migration@example.com"
+	account := &model.Account{Email: email, Enable: true, UUID: "3fa85f64-5717-4562-b3fc-2c963f66afa6"}
+	if err := database.GetDB().Create(account).Error; err != nil {
+		t.Fatalf("seed existing unserved account: %v", err)
+	}
+
+	before := snapshotUntouchedTables(t)
+	svc.MigrationAccounts()
+	assertAdditiveOnly(t, before)
+
+	if !svc.AccountsMigrated() {
+		t.Fatal("migration rolled back even though an account without inbound memberships is valid")
+	}
+	got := accountsInDB(t)
+	if len(got) != 1 || got[0].Email != email || got[0].UUID != account.UUID {
+		t.Fatalf("existing parked account was not preserved: %+v", got)
+	}
+	if memberships := membershipsInDB(t); len(memberships) != 0 {
+		t.Errorf("parked account unexpectedly gained memberships: %+v", memberships)
+	}
+}
+
 // The escape hatch. On a panel where every account is on ONE inbound, reverting
 // is a no-op for the data plane: settings.clients is still the truth, so every
 // account keeps its entry, its credentials and its address.

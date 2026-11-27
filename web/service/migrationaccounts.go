@@ -348,29 +348,21 @@ func (s *AccountService) verifyAccountsPass(tx *gorm.DB, report *AccountsMigrati
 	if err := tx.Find(&accounts).Error; err != nil {
 		return err
 	}
-	accountById := map[int]*model.Account{}
-	for i := range accounts {
-		accountById[accounts[i].Id] = &accounts[i]
-	}
-
 	var memberships []model.AccountInbound
 	if err := tx.Find(&memberships).Error; err != nil {
 		return err
 	}
 	byPair := map[[2]int]*model.AccountInbound{}
-	membershipsPerAccount := map[int]int{}
 	for i := range memberships {
 		m := &memberships[i]
 		byPair[[2]int{m.AccountId, m.InboundId}] = m
-		membershipsPerAccount[m.AccountId]++
 	}
 
-	// Check 2: every account has at least one membership (no orphans).
-	for _, account := range accounts {
-		if membershipsPerAccount[account.Id] == 0 {
-			return fmt.Errorf("verification failed: account %q (id %d) has no membership", account.Email, account.Id)
-		}
-	}
+	// Accounts without memberships are valid: the Clients UI supports parked
+	// accounts that are intentionally not attached to any inbound yet. Migration
+	// must preserve them rather than rolling back the entire additive backfill.
+	// The per-inbound checks below still require every legacy settings.clients
+	// entry to resolve to exactly one account and membership.
 
 	accountByKey := map[string]*model.Account{}
 	for i := range accounts {
