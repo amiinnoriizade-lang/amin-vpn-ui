@@ -80,6 +80,33 @@ func (m *ConfigManager) StatsAPIAddress() (string, error) {
 	return "", errors.New("Xray API inbound referenced by api.tag was not found")
 }
 
+type onlineUsersResponse struct {
+	Users []struct {
+		Email string `json:"email"`
+		IPs []json.RawMessage `json:"ips"`
+	} `json:"users"`
+}
+
+func (m *ConfigManager) queryOnlineUsers(ctx context.Context, server string) (map[string]bool, error) {
+	cmd := exec.CommandContext(ctx, m.XrayBinary, "api", "statsonlineiplist", "--server="+server, "-all")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("query Xray online users: %w", err)
+	}
+	var response onlineUsersResponse
+	if err := json.Unmarshal(output, &response); err != nil {
+		return nil, fmt.Errorf("decode Xray online users: %w", err)
+	}
+	online := make(map[string]bool, len(response.Users))
+	for _, user := range response.Users {
+		email := strings.ToLower(strings.TrimSpace(user.Email))
+		if email != "" && len(user.IPs) > 0 {
+			online[email] = true
+		}
+	}
+	return online, nil
+}
+
 // QueryUserTraffic reads cumulative Xray user counters without resetting them.
 // This lets the panel calculate per-user rates from consecutive safe samples.
 func (m *ConfigManager) QueryUserTraffic(ctx context.Context) ([]UserTraffic, error) {
@@ -130,6 +157,19 @@ func (m *ConfigManager) QueryUserTraffic(ctx context.Context) ([]UserTraffic, er
 			item.Up = value
 		case "downlink":
 			item.Down = value
+		}
+	}
+	// Online sessions are exposed by Xray's dedicated online-IP API rather
+	// than by QueryStats. Keep this optional so older Xray builds can still
+	// provide accurate traffic counters.
+	if online, onlineErr := m.queryOnlineUsers(ctx, server); onlineErr == nil {
+		for email := range online {
+			item := byEmail[email]
+			if item == nil {
+				item = &UserTraffic{Email: email}
+				byEmail[email] = item
+			}
+			item.Online = true
 		}
 	}
 	result := make([]UserTraffic, 0, len(byEmail))
