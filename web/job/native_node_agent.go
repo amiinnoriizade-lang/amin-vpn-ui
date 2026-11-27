@@ -37,9 +37,47 @@ type nativeAgentSettings struct {
 
 func NativeAgentListInbounds(ctx context.Context, n model.Node) ([]NativeAgentInbound, error) {
  raw, err := nodeRequestBody(ctx, n, http.MethodGet, "api/v1/inbounds", nil)
- if err != nil { return nil, err }
+ if err != nil {
+  return nil, err
+ }
+
+ // AMIN Agent endpoints use the standard API envelope:
+ // {"success":true,"obj":[...]}.
+ // Accept the bare array too for compatibility with older Agent builds.
+ payload := raw
+ var envelope struct {
+  Success bool            `json:"success"`
+  Obj     json.RawMessage `json:"obj"`
+  Msg     string          `json:"msg"`
+  Error   string          `json:"error"`
+ }
+ if len(raw) > 0 && raw[0] == '{' {
+  if err := json.Unmarshal(raw, &envelope); err != nil {
+   return nil, fmt.Errorf("decode AMIN Agent inbound response envelope: %w", err)
+  }
+  if !envelope.Success {
+   message := strings.TrimSpace(envelope.Msg)
+   if message == "" {
+    message = strings.TrimSpace(envelope.Error)
+   }
+   if message == "" {
+    message = "Agent returned success=false"
+   }
+   return nil, fmt.Errorf("AMIN Agent inbound API: %s", message)
+  }
+  if len(envelope.Obj) == 0 || string(envelope.Obj) == "null" {
+   return nil, fmt.Errorf("AMIN Agent inbound response has no obj array")
+  }
+  payload = envelope.Obj
+ }
+
  var inbounds []NativeAgentInbound
- if err := json.Unmarshal(raw, &inbounds); err != nil { return nil, fmt.Errorf("decode AMIN Agent inbound list: %w", err) }
+ if err := json.Unmarshal(payload, &inbounds); err != nil {
+  return nil, fmt.Errorf("decode AMIN Agent inbound list: %w", err)
+ }
+ if inbounds == nil {
+  inbounds = []NativeAgentInbound{}
+ }
  return inbounds, nil
 }
 
