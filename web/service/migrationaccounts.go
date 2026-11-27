@@ -169,7 +169,6 @@ func (s *AccountService) migrationNeeded(db *gorm.DB) (bool, int, error) {
 		return false, 0, err
 	}
 
-	emails := map[string]struct{}{}
 	entries := 0
 	for _, inbound := range inbounds {
 		clients, ok := parseSettingsClients(inbound.Settings)
@@ -181,23 +180,49 @@ func (s *AccountService) migrationNeeded(db *gorm.DB) (bool, int, error) {
 			if accountKey(email) == "" {
 				continue
 			}
-			emails[accountKey(email)] = struct{}{}
 			entries++
 		}
 	}
 
-	var accountCount, membershipCount int64
-	if err := db.Model(&model.Account{}).Count(&accountCount).Error; err != nil {
+	// Accounts may legitimately have no inbound yet. Do not compare global
+	// table counts: an unserved account is not a missing legacy migration row.
+	// Instead, verify every legacy (email, inbound) pair individually.
+	var accounts []model.Account
+	if err := db.Select("id", "email").Find(&accounts).Error; err != nil {
 		return false, 0, err
 	}
-	if err := db.Model(&model.AccountInbound{}).Count(&membershipCount).Error; err != nil {
-		return false, 0, err
+	accountIDs := make(map[string]int, len(accounts))
+	for i := range accounts {
+		accountIDs[accountKey(accounts[i].Email)] = accounts[i].Id
 	}
 
-	if int(accountCount) == len(emails) && int(membershipCount) == entries {
-		return false, entries, nil
+	var memberships []model.AccountInbound
+	if err := db.Select("account_id", "inbound_id").Find(&memberships).Error; err != nil {
+		return false, 0, err
 	}
-	return true, entries, nil
+	haveMembership := make(map[[2]int]bool, len(memberships))
+	for _, membership := range memberships {
+		haveMembership[[2]int{membership.AccountId, membership.InboundId}] = true
+	}
+
+	for _, inbound := range inbounds {
+		clients, ok := parseSettingsClients(inbound.Settings)
+		if !ok {
+			continue
+		}
+		for _, entry := range clients {
+			email, _ := entry["email"].(string)
+			key := accountKey(email)
+			if key == "" {
+				continue
+			}
+			accountID, found := accountIDs[key]
+			if !found || !haveMembership[[2]int{accountID, inbound.Id}] {
+				return true, entries, nil
+			}
+		}
+	}
+	return false, entries, nil
 }
 
 // parseSettingsClients pulls the clients array out of an inbound's settings.
@@ -348,28 +373,18 @@ func (s *AccountService) verifyAccountsPass(tx *gorm.DB, report *AccountsMigrati
 	if err := tx.Find(&accounts).Error; err != nil {
 		return err
 	}
-	accountById := map[int]*model.Account{}
-	for i := range accounts {
-		accountById[accounts[i].Id] = &accounts[i]
-	}
-
+	// Accounts without memberships are valid: the account-centric client
+	// manager supports creating an account before assigning any inbound. The
+	// migration must verify every legacy client below, not reject unrelated
+	// unserved accounts already present in the accounts table.
 	var memberships []model.AccountInbound
 	if err := tx.Find(&memberships).Error; err != nil {
 		return err
 	}
 	byPair := map[[2]int]*model.AccountInbound{}
-	membershipsPerAccount := map[int]int{}
 	for i := range memberships {
 		m := &memberships[i]
 		byPair[[2]int{m.AccountId, m.InboundId}] = m
-		membershipsPerAccount[m.AccountId]++
-	}
-
-	// Check 2: every account has at least one membership (no orphans).
-	for _, account := range accounts {
-		if membershipsPerAccount[account.Id] == 0 {
-			return fmt.Errorf("verification failed: account %q (id %d) has no membership", account.Email, account.Id)
-		}
 	}
 
 	accountByKey := map[string]*model.Account{}
