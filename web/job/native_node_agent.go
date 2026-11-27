@@ -133,9 +133,13 @@ func probeNativeAgentNode(n model.Node) map[string]any {
  fail:=func(err error) map[string]any { patch["last_error"]=err.Error(); return patch }
  ctx,cancel:=context.WithTimeout(context.Background(),nodeHeartbeatTimeout)
  defer cancel()
- started:=time.Now()
+ healthStarted:=time.Now()
  health,err:=nodeRequestBody(ctx,n,http.MethodGet,"health",nil)
  if err!=nil { return fail(fmt.Errorf("AMIN Agent health: %w",err)) }
+ // Ping is the round-trip time of the lightweight health endpoint only.
+ // Capability and system metadata are deliberately excluded: they are separate
+ // management calls and must not inflate the network-latency figure.
+ patch["latency_ms"]=int(time.Since(healthStarted).Milliseconds())
  var h struct { Version string `json:"version"`; UptimeSeconds uint64 `json:"uptimeSeconds"` }
  if err=json.Unmarshal(health,&h);err!=nil { return fail(fmt.Errorf("decode AMIN Agent health: %w",err)) }
  capabilities,err:=nodeRequestBody(ctx,n,http.MethodGet,"api/v1/capabilities",nil)
@@ -147,7 +151,6 @@ func probeNativeAgentNode(n model.Node) map[string]any {
  var sys struct { UptimeSeconds uint64 `json:"uptimeSeconds"` }
  if err=json.Unmarshal(system,&sys);err!=nil { return fail(fmt.Errorf("decode AMIN Agent system: %w",err)) }
  patch["status"]="online"
- patch["latency_ms"]=int(time.Since(started).Milliseconds())
  patch["agent_version"]=h.Version
  patch["uptime_secs"]=sys.UptimeSeconds
  if patch["uptime_secs"].(uint64)==0 { patch["uptime_secs"]=h.UptimeSeconds }

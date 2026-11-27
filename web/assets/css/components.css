@@ -190,10 +190,21 @@
 }
 
 .bo-topbar {
-  background:var(--surface); border-bottom:1px solid var(--border);
-  position:sticky; top:0; z-index:10;
+  /* A deliberate AMIN-UI identity banner replaces the empty white strip.
+     The map is a local embedded asset, so the header never depends on a CDN. */
+  position:sticky; top:0; z-index:10; isolation:isolate; overflow:hidden;
+  color:#effffb;
+  background:linear-gradient(108deg,#071b2b 0%,#0b3b49 56%,#07574f 100%);
+  border-bottom:1px solid rgba(115,231,211,.24);
+}
+.bo-topbar::after {
+  content:""; position:absolute; z-index:-1; inset:0 0 0 auto;
+  width:min(62%,760px);
+  background:url("../img/amin-world-map.svg") no-repeat right center / contain;
+  opacity:.32; pointer-events:none;
 }
 .bo-topbar-inner {
+  position:relative; z-index:1; min-height:62px;
   max-width:1320px; margin:0 auto; padding:10px 24px;
   display:flex; align-items:center; justify-content:space-between;
   gap:var(--gap-sm); flex-wrap:wrap;
@@ -241,7 +252,8 @@ body.dark .bo-theme-toggle .bo-i-moon { display:block; }
 
 .bo-topbar-title {
   font-size:var(--fs-md); font-weight:var(--fw-semibold);
-  color:var(--text); margin:0; text-wrap:balance;
+  color:#f3fffc; margin:0; text-wrap:balance;
+  text-shadow:0 1px 12px rgba(0,0,0,.22);
 }
 
 .bo-content { max-width:1320px; width:100%; margin:0 auto; padding:12px 22px 8px; }
@@ -1431,6 +1443,8 @@ html[data-theme-animations='off'] .log-live-dot { animation:none; }
    side - enough for .ant-modal-body's overflow-x:auto to put a scrollbar across
    the bottom of every rail dialog. */
 @media (max-width:768px) {
+  .bo-topbar::after { width:78%; opacity:.22; }
+
   .bo-cf { margin:-20px; }
 }
 

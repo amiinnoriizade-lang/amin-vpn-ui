@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mhsanaei/3x-ui/v2/database/model"
 )
@@ -124,5 +125,65 @@ func TestNativeAgentRejectsUnsuccessfulEnvelope(t *testing.T) {
 	_, err = NativeAgentListInbounds(context.Background(), node)
 	if err == nil || !strings.Contains(err.Error(), "invalid node token") {
 		t.Fatalf("expected Agent envelope error, got %v", err)
+	}
+}
+
+
+func TestProbeNativeAgentLatencyMeasuresHealthOnly(t *testing.T) {
+	const token = "test-node-token-with-sufficient-length"
+	requests := make(map[string]int)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer "+token {
+			t.Errorf("authorization = %q, want bearer token", got)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		switch r.URL.Path {
+		case "/health":
+			requests["health"]++
+			time.Sleep(80 * time.Millisecond)
+			_, _ = w.Write([]byte(`{"success":true,"obj":{"version":"0.2.1","uptimeSeconds":900}}`))
+		case "/api/v1/capabilities":
+			requests["capabilities"]++
+			time.Sleep(300 * time.Millisecond)
+			_, _ = w.Write([]byte(`{"success":true,"obj":{"xrayManagement":true}}`))
+		case "/api/v1/system":
+			requests["system"]++
+			time.Sleep(300 * time.Millisecond)
+			_, _ = w.Write([]byte(`{"success":true,"obj":{"uptimeSeconds":900}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	host, portText, err := net.SplitHostPort(strings.TrimPrefix(server.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var port int
+	if _, err := fmt.Sscanf(portText, "%d", &port); err != nil {
+		t.Fatal(err)
+	}
+	node := model.Node{
+		Address: host, Port: port, Scheme: "http", ApiToken: token,
+		AgentMode: true, AllowPrivateAddress: true,
+	}
+
+	started := time.Now()
+	patch := probeNativeAgentNode(node)
+	total := time.Since(started)
+	if patch["status"] != "online" {
+		t.Fatalf("expected online status, got %v (error: %v)", patch["status"], patch["last_error"])
+	}
+	latency := patch["latency_ms"].(int)
+	if latency < 50 || latency >= 250 {
+		t.Fatalf("health latency = %dms, want the health-only round trip (50-249ms)", latency)
+	}
+	if total < 600*time.Millisecond {
+		t.Fatalf("test server delays were not included in total probe duration: %s", total)
+	}
+	if requests["health"] != 1 || requests["capabilities"] != 1 || requests["system"] != 1 {
+		t.Fatalf("unexpected probe requests: %#v", requests)
 	}
 }
