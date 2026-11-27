@@ -262,6 +262,10 @@ func syncNativeAgentNode(n model.Node, now int64, previous map[string]nodeCounte
   }
  }
  next, deltas := nodeSpeedDelta(previous, aggregates, now)
+ // The caller supplies a per-node map. Replace its contents atomically after
+ // computing deltas so the next poll uses this exact node's cumulative sample.
+ for email := range previous { delete(previous, email) }
+ for email, sample := range next { previous[email] = sample }
  clientRows:=make([]model.NodeClientSnapshot,0,len(clients))
  for _,client:=range clients { clientRows=append(clientRows,*client) }
  db:=database.GetDB()
@@ -277,7 +281,6 @@ func syncNativeAgentNode(n model.Node, now int64, previous map[string]nodeCounte
   }).Error
  })
  if err!=nil { return nil,nil,nil,err }
- _ = next
  return deltas,[]string{},map[string]int64{},nil
 }
 
