@@ -67,6 +67,26 @@ func decodeNativeAgentObject(raw []byte, target any) error {
 	return nil
 }
 
+type NativeAgentUserTraffic struct {
+	Email string `json:"email"`
+	Up int64 `json:"up"`
+	Down int64 `json:"down"`
+}
+
+// NativeAgentQueryUserTraffic fetches cumulative Xray StatsService counters.
+// It does not reset counters; rate calculation remains panel-side and per node.
+func NativeAgentQueryUserTraffic(ctx context.Context, n model.Node) ([]NativeAgentUserTraffic, error) {
+	raw, err := nodeRequestBody(ctx, n, http.MethodGet, "api/v1/stats", nil)
+	if err != nil {
+		return nil, fmt.Errorf("query AMIN Agent traffic stats: %w", err)
+	}
+	var traffic []NativeAgentUserTraffic
+	if err := decodeNativeAgentObject(raw, &traffic); err != nil {
+		return nil, fmt.Errorf("decode AMIN Agent traffic stats: %w", err)
+	}
+	return traffic, nil
+}
+
 func NativeAgentListInbounds(ctx context.Context, n model.Node) ([]NativeAgentInbound, error) {
  raw, err := nodeRequestBody(ctx, n, http.MethodGet, "api/v1/inbounds", nil)
  if err != nil {
@@ -184,7 +204,7 @@ func nativeClientEnabled(enabled *bool) bool {
 	return enabled == nil || *enabled
 }
 
-func syncNativeAgentNode(n model.Node, now int64) ([]nodeClientDelta, []string, map[string]int64, error) {
+func syncNativeAgentNode(n model.Node, now int64, previous map[string]nodeCounterSample) ([]nodeClientDelta, []string, map[string]int64, error) {
  ctx,cancel:=context.WithTimeout(context.Background(),nodeTrafficRequestTimeout)
  defer cancel()
  inbounds,err:=NativeAgentListInbounds(ctx,n)
@@ -220,6 +240,28 @@ func syncNativeAgentNode(n model.Node, now int64) ([]nodeClientDelta, []string, 
    if client.ExpiryTime>item.ExpiryTime { item.ExpiryTime=client.ExpiryTime }
   }
  }
+ // Read cumulative per-user Xray counters. StatsService is optional; if it is
+ // not configured, retain a useful inbound/client snapshot and record the
+ // reason rather than fabricating zero-speed samples.
+ stats, statsErr := NativeAgentQueryUserTraffic(ctx, n)
+ if statsErr == nil {
+  for _, sample := range stats {
+   email := strings.ToLower(strings.TrimSpace(sample.Email))
+   if client := clients[email]; client != nil {
+    if sample.Up >= 0 { client.Up = sample.Up }
+    if sample.Down >= 0 { client.Down = sample.Down }
+   }
+  }
+ }
+ aggregates := make(map[string]*nodeClientAggregate, len(clients))
+ for email, client := range clients {
+  aggregates[email] = &nodeClientAggregate{
+   Up:client.Up, Down:client.Down, Total:client.Total,
+   ExpiryTime:client.ExpiryTime, Enable:client.Enable,
+   LastOnline:client.LastOnline, Online:client.Online,
+  }
+ }
+ next, deltas := nodeSpeedDelta(previous, aggregates, now)
  clientRows:=make([]model.NodeClientSnapshot,0,len(clients))
  for _,client:=range clients { clientRows=append(clientRows,*client) }
  db:=database.GetDB()
@@ -228,12 +270,15 @@ func syncNativeAgentNode(n model.Node, now int64) ([]nodeClientDelta, []string, 
   if e:=tx.Where("node_id = ?",n.Id).Delete(&model.NodeClientSnapshot{}).Error;e!=nil{return e}
   if len(rows)>0 { if e:=tx.CreateInBatches(&rows,100).Error;e!=nil{return e} }
   if len(clientRows)>0 { if e:=tx.CreateInBatches(&clientRows,200).Error;e!=nil{return e} }
+  lastErr := ""
+  if statsErr != nil { lastErr = "traffic stats unavailable: " + statsErr.Error() }
   return tx.Model(&model.Node{}).Where("id = ?",n.Id).Updates(map[string]any{
-   "inbound_count":len(rows),"client_count":len(clientRows),"last_sync_at":now,"last_sync_error":"",
+   "inbound_count":len(rows),"client_count":len(clientRows),"last_sync_at":now,"last_sync_error":lastErr,
   }).Error
  })
  if err!=nil { return nil,nil,nil,err }
- return []nodeClientDelta{},[]string{},map[string]int64{},nil
+ _ = next
+ return deltas,[]string{},map[string]int64{},nil
 }
 
 func probeNativeAgentNode(n model.Node) map[string]any {
