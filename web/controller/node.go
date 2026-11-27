@@ -421,6 +421,12 @@ type nodeClientMutation struct {
  TotalBytes int64 `json:"totalBytes"`
  ExpiryTime int64 `json:"expiryTime"`
  Enable bool `json:"enable"`
+ ID string `json:"id"`
+ Password string `json:"password"`
+ Flow string `json:"flow"`
+ Security string `json:"security"`
+ Level *int `json:"level"`
+ AlterID *int `json:"alterId"`
 }
 
 func (a *NodeController) listNodeClients(c *gin.Context) {
@@ -470,7 +476,43 @@ func validRemoteEmail(email string) bool {
 
 func (a *NodeController) updateNodeClient(c *gin.Context) {
  n,ok:=a.loadManageableNode(c); if !ok { return }
- if n.AgentMode { c.JSON(http.StatusNotImplemented,gin.H{"success":false,"msg":"client update is not yet supported by the current AMIN Node Agent API"}); return }
+ if n.AgentMode {
+  email:=strings.ToLower(strings.TrimSpace(c.Param("email")))
+  if !validRemoteEmail(email) { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid username"}); return }
+  var exists model.NodeClientSnapshot
+  if err:=nodeDB().Where("node_id = ? AND email = ?",n.Id,email).First(&exists).Error; err!=nil { c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"client not found in this node"}); return }
+  var req nodeClientMutation
+  if err:=c.ShouldBindJSON(&req); err!=nil { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid client update"}); return }
+  if req.TotalBytes!=0 || req.ExpiryTime!=0 {
+   c.JSON(http.StatusNotImplemented,gin.H{"success":false,"msg":"AMIN Node Agent does not yet enforce traffic quota or expiry; those fields were not changed"}); return
+  }
+  patch:=map[string]any{}
+  if strings.TrimSpace(req.ID)!="" { patch["id"]=strings.TrimSpace(req.ID) }
+  if strings.TrimSpace(req.Password)!="" { patch["password"]=strings.TrimSpace(req.Password) }
+  if req.Flow!="" { patch["flow"]=req.Flow }
+  if req.Security!="" { patch["security"]=req.Security }
+  if req.Level!=nil { patch["level"]=*req.Level }
+  if req.AlterID!=nil { patch["alterId"]=*req.AlterID }
+  if len(patch)==0 {
+   c.JSON(http.StatusNotImplemented,gin.H{"success":false,"msg":"For AMIN Agent clients, provide at least one supported field: id, password, flow, security, level or alterId. Quota, expiry and enable toggles are not supported."}); return
+  }
+  ctx,cancel:=context.WithTimeout(c.Request.Context(),20*time.Second); defer cancel()
+  inbounds,err:=job.NativeAgentListInbounds(ctx,n)
+  if err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":err.Error()}); return }
+  matched:=false
+  for _,ib:=range inbounds {
+   var settings struct { Clients []struct { Email string `json:"email"` } `json:"clients"` }
+   if len(ib.Settings)>0 { if e:=json.Unmarshal(ib.Settings,&settings); e!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"invalid client settings from native inbound "+ib.Tag}); return } }
+   for _,cl:=range settings.Clients { if strings.EqualFold(strings.TrimSpace(cl.Email),email) {
+    if err=job.NativeAgentUpdateClient(ctx,n,ib.Tag,email,patch); err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"client update failed on inbound "+ib.Tag+": "+err.Error()}); return }
+    matched=true
+   } }
+  }
+  if !matched { c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"client not found on this native node"}); return }
+  _=nodeDB().Model(&model.NodeClientSnapshot{}).Where("node_id = ? AND email = ?",n.Id,email).Update("last_sync_at",time.Now().UnixMilli()).Error
+  c.JSON(http.StatusOK,gin.H{"success":true,"msg":"supported client fields updated on AMIN Agent"})
+  return
+ }
  email:=strings.ToLower(strings.TrimSpace(c.Param("email")))
  if !validRemoteEmail(email) { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid username"}); return }
  var exists model.NodeClientSnapshot
