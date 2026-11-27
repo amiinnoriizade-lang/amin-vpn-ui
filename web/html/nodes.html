@@ -172,7 +172,7 @@
       </label>
     </div>
     <label v-if="form.agentMode" style="display:block;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--surface-2)">
-      **آدرس عمومی اتصال کاربران (الزامی برای ساخت کانفیگ)**
+      <strong>آدرس عمومی اتصال کاربران (الزامی برای ساخت کانفیگ)</strong>
       <input class="ant-input" v-model="form.publicAddress" placeholder="IP یا دامنه عمومی سرور مقصد؛ نه 127.0.0.1" style="display:block;width:100%;margin-top:5px"/>
       <small style="display:block;margin-top:5px;color:var(--muted)">این آدرس داخل لینک VLESS/VMess/Trojan قرار می‌گیرد. آدرس بالا صرفاً مسیر مدیریتی Agent است و ممکن است 127.0.0.1 باشد.</small>
     </label>
