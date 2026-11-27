@@ -60,10 +60,13 @@ printf '%s\n' '{"stat":[{"name":"user>>>alice@example.com>>>traffic>>>uplink","v
  if err := os.WriteFile(binary, []byte(script), 0700); err != nil { t.Fatal(err) }
  manager := &xray.ConfigManager{Path:configPath,XrayBinary:binary}
 
+ const token = "test-node-token-with-sufficient-length"
+ handler := auth(token, protectedAPI(manager))
  req := httptest.NewRequest(http.MethodGet, "/api/v1/stats", nil)
+ req.Header.Set("Authorization", "Bearer "+token)
  rec := httptest.NewRecorder()
- inboundAPI(manager)(rec, req)
- if rec.Code != http.StatusOK { t.Fatalf("got %d: %s", rec.Code, rec.Body.String()) }
+ handler.ServeHTTP(rec, req)
+ if rec.Code != http.StatusOK { t.Fatalf("GET /api/v1/stats got %d: %s", rec.Code, rec.Body.String()) }
  if !strings.Contains(rec.Body.String(), `"email":"alice@example.com"`) || !strings.Contains(rec.Body.String(), `"up":321`) {
   t.Fatalf("unexpected stats response: %s", rec.Body.String())
  }
