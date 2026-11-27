@@ -451,7 +451,7 @@ func (m *ConfigManager) UpdateClient(tag, email string, patch map[string]interfa
 			if !ok {
 				return nil, errors.New("invalid client entry")
 			}
-			if stringField(client, "email") != email {
+			if !strings.EqualFold(stringField(client, "email"), email) {
 				continue
 			}
 			found = true
