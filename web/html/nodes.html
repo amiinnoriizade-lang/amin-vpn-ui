@@ -284,6 +284,12 @@ const app = new Vue({
    if(r&&r.success){this.$message.success('اطلاعات نود ذخیره شد');this.modalVisible=false;await this.loadNodes();}
   },
   async showNode(n){this.selectedNode=n;this.nodeSnapshot={inbounds:[],clients:[]};this.snapshotLoading=true;const r=await HttpUtil.get('/panel/api/nodes/snapshot/'+n.id);this.snapshotLoading=false;if(r&&r.success)this.nodeSnapshot=r.obj||{inbounds:[],clients:[]};else this.$message.warning((r&&r.msg)||'دریافت Inboundها ناموفق بود');},
+  async refreshNodeSnapshot(){
+   if(!this.selectedNode||this.snapshotLoading)return;
+   const nodeId=this.selectedNode.id;
+   const r=await HttpUtil.get('/panel/api/nodes/snapshot/'+nodeId);
+   if(r&&r.success&&this.selectedNode&&this.selectedNode.id===nodeId)this.nodeSnapshot=r.obj||{inbounds:[],clients:[]};
+  },
   inboundDisplay(ib){return (ib.tag||ib.remoteTag||ib.remark||'Inbound')+' · '+String(ib.protocol||'').toUpperCase()+' · '+ib.port;},
   openCreateClient(ib){this.clientError='';const isNew=!ib&&!!(this.selectedNode&&this.selectedNode.agentMode);this.clientForm={mode:isNew?'new':'existing',inboundId:ib?ib.remoteId:null,port:2053,email:'',flow:'',protocol:ib?String(ib.protocol||'').toLowerCase():'vless'};this.clientModalVisible=true;},
   onClientInboundChange(id){const ib=this.selectableInbounds.find(x=>Number(x.remoteId)===Number(id));this.clientForm.protocol=ib?String(ib.protocol||'').toLowerCase():'';this.clientForm.flow='';this.clientError='';},
@@ -368,7 +374,11 @@ const app = new Vue({
   async setEnabled(n,v){const r=await HttpUtil.post('/panel/api/nodes/setEnable/'+n.id,{enable:v});if(r&&r.success){n.enable=v;this.$message.success(v?'نود فعال شد':'نود غیرفعال شد');}else await this.loadNodes();},
   removeNode(n){this.$confirm({title:'حذف نود',content:'نود «'+n.name+'» حذف شود؟',okText:'حذف',cancelText:'انصراف',class:themeSwitcher.currentTheme,onOk:async()=>{const r=await HttpUtil.post('/panel/api/nodes/del/'+n.id);if(r&&r.success){this.$message.success('نود حذف شد');await this.loadNodes();}}});}
  },
- mounted(){this.loadNodes();}
+ mounted(){
+  this.loadNodes();
+  this.nodeSnapshotTimer=window.setInterval(()=>this.refreshNodeSnapshot(),5000);
+ },
+ beforeDestroy(){if(this.nodeSnapshotTimer)window.clearInterval(this.nodeSnapshotTimer);}
 });
 </script>
 {{ template "page/body_end" . }}
