@@ -240,22 +240,72 @@ func (a *NodeController) createClient(c *gin.Context) {
  }
  if n.AgentMode {
   if req.TotalGB != 0 || req.Months != 0 || req.Days != 0 {
-   c.JSON(http.StatusNotImplemented, gin.H{"success":false,"msg":"AMIN Node Agent 0.2.1 does not yet enforce traffic quotas or expiry; use unlimited volume and no expiry for this node"})
-   return
+   c.JSON(http.StatusNotImplemented,gin.H{"success":false,"msg":"AMIN Node Agent 0.2.1 does not yet enforce traffic quotas or expiry; use unlimited volume and no expiry for this node"}); return
   }
   if inbound.RemoteTag=="" { c.JSON(http.StatusConflict,gin.H{"success":false,"msg":"native inbound tag is not synchronized yet; refresh the node snapshot"}); return }
-  client:=map[string]any{"email":req.Email,"level":0}
-  switch protocol {
-  case "vless","vmess": client["id"]=uuid.NewString()
-  case "trojan": client["password"]=uuid.NewString()
-  default: c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"native Agent client creation supports VLESS, VMess and Trojan"}); return
+  ctx,cancel:=context.WithTimeout(c.Request.Context(),20*time.Second); defer cancel()
+
+  // Validate the selected snapshot entry against the Agent's current Xray state.
+  liveInbounds,liveErr:=job.NativeAgentListInbounds(ctx,n)
+  if liveErr!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"could not refresh live Agent inbounds: "+liveErr.Error()}); return }
+  var liveInbound *job.NativeAgentInbound
+  for i:=range liveInbounds { if liveInbounds[i].Tag==inbound.RemoteTag { liveInbound=&liveInbounds[i]; break } }
+  if liveInbound==nil { c.JSON(http.StatusConflict,gin.H{"success":false,"msg":"selected inbound no longer exists on AMIN Agent; refresh the inbound list"}); return }
+  if liveInbound.Port!=inbound.Port || !strings.EqualFold(strings.TrimSpace(liveInbound.Protocol),protocol) {
+   c.JSON(http.StatusConflict,gin.H{"success":false,"msg":"selected inbound changed on AMIN Agent; refresh the inbound list and try again"}); return
   }
+  var liveSettings struct { Clients []struct { Email string `json:"email"` } `json:"clients"` }
+  if len(liveInbound.Settings)>0 {
+   if decodeErr:=json.Unmarshal(liveInbound.Settings,&liveSettings); decodeErr!=nil {
+    c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"could not read selected inbound clients from AMIN Agent: "+decodeErr.Error()}); return
+   }
+  }
+  for _,existing:=range liveSettings.Clients {
+   if strings.EqualFold(strings.TrimSpace(existing.Email),req.Email) {
+    c.JSON(http.StatusConflict,gin.H{"success":false,"msg":"this username already exists on the selected inbound"}); return
+   }
+  }
+
+  client:=map[string]any{"email":req.Email,"level":0}
+  switch protocol { case "vless","vmess": client["id"]=uuid.NewString(); case "trojan": client["password"]=uuid.NewString() }
   if req.Flow!="" { client["flow"]=req.Flow }
-  ctx,cancel:=context.WithTimeout(c.Request.Context(),12*time.Second); defer cancel()
-  if err=job.NativeAgentCreateClient(ctx,n,inbound.RemoteTag,client); err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":err.Error()}); return }
-  _=nodeDB().Where("node_id = ? AND email = ?",id,req.Email).Delete(&model.NodeClientSnapshot{}).Error
-  _=nodeDB().Create(&model.NodeClientSnapshot{NodeID:id,Email:req.Email,Enable:true,LastSyncAt:time.Now().UnixMilli()}).Error
-  c.JSON(http.StatusOK,gin.H{"success":true,"obj":gin.H{"nodeId":id,"inboundId":req.InboundID,"inbound":inbound.Remark,"protocol":protocol,"email":req.Email,"id":client["id"],"password":client["password"]}})
+  if err=job.NativeAgentCreateClient(ctx,n,inbound.RemoteTag,client); err!=nil {
+   c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"AMIN Agent rejected client creation: "+err.Error()}); return
+  }
+
+  // Confirm the username is now visible in the selected inbound's live Xray config.
+  verified:=false
+  for attempt:=0;attempt<4;attempt++ {
+   var verifyErr error
+   verified,verifyErr=job.NativeAgentInboundHasClient(ctx,n,inbound.RemoteTag,req.Email)
+   if verifyErr!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"Agent accepted the create request, but live Xray verification failed: "+verifyErr.Error()}); return }
+   if verified { break }
+   if attempt<3 {
+    select { case <-ctx.Done(): c.JSON(http.StatusGatewayTimeout,gin.H{"success":false,"msg":"Agent accepted the create request, but the user did not appear in Xray before verification timed out"}); return
+    case <-time.After(200*time.Millisecond): }
+   }
+  }
+  if !verified { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"Agent accepted the create request, but the username is not present in the selected inbound's live Xray configuration"}); return }
+
+  // Upsert without deleting an existing node/email snapshot or resetting counters.
+  dbErr:=nodeDB().Transaction(func(tx *gorm.DB) error {
+   var snapshot model.NodeClientSnapshot
+   findErr:=tx.Where("node_id = ? AND email = ?",id,req.Email).First(&snapshot).Error
+   if findErr==gorm.ErrRecordNotFound {
+    snapshot=model.NodeClientSnapshot{NodeID:id,Email:req.Email,Enable:true,LastSyncAt:time.Now().UnixMilli()}
+    if createErr:=tx.Create(&snapshot).Error; createErr!=nil { return createErr }
+   } else if findErr!=nil { return findErr
+   } else if updateErr:=tx.Model(&snapshot).Updates(map[string]any{"enable":true,"last_sync_at":time.Now().UnixMilli()}).Error; updateErr!=nil { return updateErr }
+   if updateErr:=tx.Model(&model.NodeInboundSnapshot{}).Where("node_id = ? AND remote_id = ?",id,req.InboundID).Update("client_count",len(liveSettings.Clients)+1).Error; updateErr!=nil { return updateErr }
+   var clientCount int64
+   if countErr:=tx.Model(&model.NodeClientSnapshot{}).Where("node_id = ?",id).Count(&clientCount).Error; countErr!=nil { return countErr }
+   return tx.Model(&model.Node{}).Where("id = ?",id).Update("client_count",clientCount).Error
+  })
+  if dbErr!=nil {
+   c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"user was created and verified on Xray, but the local snapshot could not be updated; refresh the node to synchronize it: "+dbErr.Error()}); return
+  }
+  credential:=client["id"]; if credential==nil { credential=client["password"] }
+  c.JSON(http.StatusOK,gin.H{"success":true,"obj":gin.H{"nodeId":id,"inboundId":req.InboundID,"inbound":inbound.Remark,"protocol":protocol,"port":inbound.Port,"email":req.Email,"id":client["id"],"password":client["password"],"credential":credential}})
   return
  }
  expiry := int64(0)
