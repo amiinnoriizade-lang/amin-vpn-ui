@@ -245,7 +245,13 @@ func nodeSpeedDelta(previous map[string]nodeCounterSample, current map[string]*n
 }
 
 func (j *NodeTrafficSyncJob) syncNode(n model.Node, now int64) ([]nodeClientDelta, []string, map[string]int64, error) {
- if n.AgentMode { return syncNativeAgentNode(n, now) }
+ if n.AgentMode {
+  previous := j.previous[n.Id]
+  if previous == nil { previous = make(map[string]nodeCounterSample) }
+  deltas, online, last, err := syncNativeAgentNode(n, now, previous)
+  if err == nil { j.previous[n.Id] = previous }
+  return deltas, online, last, err
+ }
  raw, err := nodeRequest(context.Background(), n, http.MethodGet, "panel/api/inbounds/list")
  if err != nil { return nil, nil, nil, fmt.Errorf("fetch inbounds: %w", err) }
  var inbounds []remoteInboundSnapshot
