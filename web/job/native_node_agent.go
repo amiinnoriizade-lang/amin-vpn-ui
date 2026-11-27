@@ -43,6 +43,28 @@ func NativeAgentListInbounds(ctx context.Context, n model.Node) ([]NativeAgentIn
  return inbounds, nil
 }
 
+// NativeAgentCreateInbound creates a new Xray listener through the authenticated Agent API.
+// The caller must validate port conflicts and verify the resulting live inbound.
+func NativeAgentCreateInbound(ctx context.Context, n model.Node, inbound map[string]any) error {
+ tag, _ := inbound["tag"].(string)
+ if strings.TrimSpace(tag) == "" {
+  return fmt.Errorf("native inbound tag is required")
+ }
+ port, ok := inbound["port"].(int)
+ if !ok || port < 1 || port > 65535 {
+  return fmt.Errorf("native inbound port must be between 1 and 65535")
+ }
+ body, err := json.Marshal(inbound)
+ if err != nil {
+  return fmt.Errorf("encode native inbound: %w", err)
+ }
+ _, err = nodeRequestBody(ctx, n, http.MethodPost, "api/v1/inbounds", body)
+ if err != nil {
+  return fmt.Errorf("AMIN Agent could not create inbound on port %d: %w", port, err)
+ }
+ return nil
+}
+
 func NativeAgentCreateClient(ctx context.Context, n model.Node, tag string, client map[string]any) error {
  if strings.TrimSpace(tag)=="" { return fmt.Errorf("native inbound tag is missing") }
  body, err := json.Marshal(client)
@@ -91,13 +113,15 @@ func NativeAgentDeleteClient(ctx context.Context, n model.Node, tag, email strin
  return err
 }
 
-func nativeInboundID(tag string) int {
+func NativeAgentInboundID(tag string) int {
  h:=fnv.New32a()
  _,_ = h.Write([]byte(tag))
  id:=int(h.Sum32() & 0x7fffffff)
  if id==0 { return 1 }
  return id
 }
+
+func nativeInboundID(tag string) int { return NativeAgentInboundID(tag) }
 
 func nativeClientEnabled(enabled *bool) bool {
 	// Xray client objects commonly omit the enable field; omission means enabled.
