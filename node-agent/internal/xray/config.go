@@ -458,6 +458,7 @@ func (m *ConfigManager) UpdateClient(tag, email string, patch map[string]interfa
 			updated := make(map[string]interface{}, len(client)+len(patch))
 			for key, value := range client { updated[key] = value }
 			for key, value := range patch { updated[key] = value }
+			credentialKey := ""
 			switch protocol {
 			case "vless", "vmess":
 				if !uuidPattern.MatchString(stringField(updated, "id")) {
@@ -466,6 +467,7 @@ func (m *ConfigManager) UpdateClient(tag, email string, patch map[string]interfa
 				if _, exists := updated["password"]; exists {
 					return nil, errors.New("password is not valid for vless/vmess clients")
 				}
+				credentialKey = "id"
 			case "trojan", "shadowsocks":
 				if stringField(updated, "password") == "" {
 					return nil, fmt.Errorf("client password is required for %s", protocol)
@@ -473,8 +475,17 @@ func (m *ConfigManager) UpdateClient(tag, email string, patch map[string]interfa
 				if _, exists := updated["id"]; exists {
 					return nil, fmt.Errorf("id is not valid for %s clients", protocol)
 				}
+				credentialKey = "password"
 			default:
 				return nil, errors.New("unsupported inbound protocol for client management")
+			}
+			for j, otherRaw := range next {
+				if j == i { continue }
+				other, ok := otherRaw.(map[string]interface{})
+				if !ok { return nil, errors.New("invalid client entry") }
+				if stringField(other, credentialKey) == stringField(updated, credentialKey) {
+					return nil, fmt.Errorf("client %s already exists", credentialKey)
+				}
 			}
 			next[i] = updated
 			break
