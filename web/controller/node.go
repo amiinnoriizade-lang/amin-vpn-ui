@@ -415,6 +415,7 @@ func (a *NodeController) listNodeClients(c *gin.Context) {
   NodeName string `json:"nodeName"`
   NodeAddress string `json:"nodeAddress"`
   NodeStatus string `json:"nodeStatus"`
+  AgentMode bool `json:"agentMode"`
  }
  var snapshots []model.NodeClientSnapshot
  if err := nodeDB().Order("node_id asc, email asc").Find(&snapshots).Error; err != nil {
@@ -429,7 +430,7 @@ func (a *NodeController) listNodeClients(c *gin.Context) {
  rows := make([]row,0,len(snapshots))
  for _, s := range snapshots {
   n, ok := nodes[s.NodeID]; if !ok { continue }
-  rows = append(rows,row{NodeClientSnapshot:s,NodeName:n.Name,NodeAddress:n.Address,NodeStatus:n.Status})
+  rows = append(rows,row{NodeClientSnapshot:s,NodeName:n.Name,NodeAddress:n.Address,NodeStatus:n.Status,AgentMode:n.AgentMode})
  }
  c.JSON(http.StatusOK,gin.H{"success":true,"obj":rows})
 }
