@@ -76,8 +76,8 @@ Update requests use `PUT` with a JSON patch containing one or more of `id`, `pas
 
 ### Per-user traffic statistics
 
-- `GET /api/v1/stats` returns cumulative per-user upload/download counters from Xray's StatsService.
-- The Agent reads the existing Xray configuration and calls `xray api statsquery`; it never resets counters and never modifies the Xray config to enable statistics.
+- `GET /api/v1/stats` returns cumulative per-user upload/download counters and online-session state from Xray's StatsService.
+- The Agent reads the existing Xray configuration and calls `xray api statsquery` plus `xray api statsonlineiplist`; it never resets counters and never modifies the Xray config to enable statistics.
 - The API is advertised as `clients.stats` only when a valid loopback API inbound and `StatsService` are configured.
 - If StatsService is not configured, node and client management continue to work, but live per-user speed remains unavailable and the panel records the reason.
 
