@@ -65,6 +65,7 @@
           <a-button v-if="selectedNode.agentMode" type="primary" icon="user-add" @click="openCreateClient(null)">ساخت کاربر با پورت دلخواه</a-button>
           <a-tag color="blue">[[ (nodeSnapshot.inbounds || []).length ]] Inbound</a-tag>
           <a-tag color="green">[[ (nodeSnapshot.clients || []).length ]] کاربر</a-tag>
+          <a-tag color="green">[[ onlineNodeClientCount ]] آنلاین</a-tag>
         </div>
         <a-alert v-if="selectedNode.agentMode" type="info" show-icon
           message="قابلیت‌ها و محدودیت‌های Agent"
@@ -80,6 +81,9 @@
         </a-table>
         <a-divider>کاربران این نود</a-divider>
         <a-table :columns="nodeClientColumns" :data-source="nodeSnapshot.clients || []" :row-key="r => r.email" :pagination="{pageSize:10}" size="small">
+          <template slot="clientOnline" slot-scope="text,cl">
+            <a-tag :color="cl.online ? 'green' : 'default'">[[ cl.online ? 'آنلاین' : 'آفلاین' ]]</a-tag>
+          </template>
           <template slot="clientEnabled" slot-scope="text,cl">
             <a-tag :color="cl.enable ? 'green' : 'red'">[[ cl.enable ? 'فعال' : 'غیرفعال' ]]</a-tag>
           </template>
@@ -247,6 +251,7 @@ const inboundColumns = [
 ];
 const nodeClientColumns = [
  {title:'نام کاربری',dataIndex:'email',key:'email'},
+ {title:'اتصال',key:'online',scopedSlots:{customRender:'clientOnline'},width:90},
  {title:'وضعیت',key:'enable',scopedSlots:{customRender:'clientEnabled'},width:100},
  {title:'حجم مصرفی',customRender:(v,r)=>((Number(r.up||0)+Number(r.down||0))/1073741824).toFixed(3)+' GB',width:120},
  {title:'دانلود زنده',customRender:(v,r)=>app.formatRate(r.downSpeed),width:110},
@@ -266,7 +271,8 @@ const app = new Vue({
  delimiters:['[[',']]'], mixins:[MediaQueryMixin], el:'#app',
  data:{themeSwitcher,pageTitle:'Nodes',pageClass:'',loading:false,saving:false,probingId:null,nodes:[],columns:nodeColumns,modalVisible:false,editing:false,editingId:null,form:emptyNode(),selectedNode:null,nodeSnapshot:{inbounds:[],clients:[]},snapshotLoading:false,snapshotRefreshing:false,clientModalVisible:false,clientSaving:false,clientError:'',credentialModalVisible:false,createdEmail:'',createdCredential:'',createdLink:'',configError:'',configLoading:false,clientForm:{mode:'existing',inboundId:null,port:2053,email:'',flow:'',protocol:'vless'},nodeClientEditVisible:false,nodeClientEditSaving:false,nodeClientEditForm:{email:'',id:'',password:'',flow:'',security:'',level:null,alterId:null}},
  computed:{
-  selectableInbounds(){return (this.nodeSnapshot.inbounds||[]).filter(ib=>ib.enable!==false&&['vless','vmess','trojan'].includes(String(ib.protocol||'').toLowerCase()));}
+  selectableInbounds(){return (this.nodeSnapshot.inbounds||[]).filter(ib=>ib.enable!==false&&['vless','vmess','trojan'].includes(String(ib.protocol||'').toLowerCase()));},
+  onlineNodeClientCount(){return (this.nodeSnapshot.clients||[]).filter(cl=>cl.online).length;}
  },
  methods:{
   async loadNodes(){this.loading=true;const r=await HttpUtil.get('/panel/api/nodes/list');this.loading=false;if(r&&r.success)this.nodes=r.obj||[];},
