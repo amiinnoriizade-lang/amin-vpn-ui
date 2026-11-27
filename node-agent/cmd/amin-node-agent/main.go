@@ -170,7 +170,7 @@ func protectedAPI(manager *xray.ConfigManager) http.Handler {
 	}))
 	protected.HandleFunc("/api/v1/inbounds", inboundAPI(manager))
 	protected.HandleFunc("/api/v1/inbounds/", inboundAPI(manager))
-	protected.HandleFunc("/api/v1/stats", inboundAPI(manager))
+	protected.Handle("/api/v1/stats", method(http.MethodGet, inboundAPI(manager)))
 	return protected
 }
 
