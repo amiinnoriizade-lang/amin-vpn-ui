@@ -68,7 +68,7 @@
         </div>
         <a-alert v-if="selectedNode.agentMode" type="info" show-icon
           message="قابلیت‌ها و محدودیت‌های Agent"
-          description="ساخت و حذف کاربر و تولید لینک اتصال پشتیبانی می‌شود. برای دریافت لینک، آدرس عمومی اتصال را در تنظیمات نود وارد کنید. محدودیت حجم، تاریخ انقضا و ویرایش کاربر هنوز در API Agent پیاده‌سازی نشده‌اند." style="margin-bottom:12px"/>
+          description="ساخت، ویرایش مشخصات فنی پشتیبانی‌شده، حذف کاربر و تولید لینک اتصال فعال است. ویرایش شناسه، رمز، Flow و پارامترهای فنی ممکن است؛ سهمیه حجم، تاریخ انقضا و فعال/غیرفعال‌سازی هنوز در Agent پشتیبانی نمی‌شود." style="margin-bottom:12px"/>
         <a-table :columns="inboundColumns" :data-source="nodeSnapshot.inbounds || []" :row-key="r => r.id" :pagination="false" :scroll="{x:700}" size="small">
           <template slot="inboundTag" slot-scope="text,ib">
             <div style="font-weight:700">[[ ib.tag || ib.remoteTag || ib.remark ]]</div>
@@ -85,6 +85,7 @@
           </template>
           <template slot="clientActions" slot-scope="text,cl">
             <a-popconfirm title="این کاربر از تمام Inboundهای نود حذف شود؟" ok-text="حذف" cancel-text="انصراف" @confirm="deleteNodeClient(cl)">
+              <a-button v-if="selectedNode && selectedNode.agentMode" size="small" icon="edit" @click="editNodeClient(cl)">ویرایش</a-button>
               <a-button size="small" type="danger" icon="delete">حذف</a-button>
             </a-popconfirm>
           </template>
@@ -128,6 +129,19 @@
     <a-alert v-if="clientForm.mode==='existing' && !selectableInbounds.length" type="warning" show-icon message="Inbound قابل استفاده‌ای پیدا نشد؛ ابتدا فهرست را بروزرسانی کنید یا پورت جدید بسازید."/>
     <a-alert v-if="clientError" type="error" show-icon :message="clientError" style="margin-top:10px"/>
   </a-form-model>
+</a-modal>
+<a-modal :visible="nodeClientEditVisible" title="ویرایش مشخصات کاربر نود" :confirm-loading="nodeClientEditSaving"
+  @ok="saveNodeClientEdit" @cancel="nodeClientEditVisible=false" ok-text="ذخیره تغییرات" cancel-text="انصراف">
+  <a-form-model :model="nodeClientEditForm" :label-col="{span:7}" :wrapper-col="{span:17}">
+    <a-form-model-item label="نام کاربری"><a-input :value="nodeClientEditForm.email" disabled/></a-form-model-item>
+    <a-form-model-item label="UUID جدید"><a-input v-model="nodeClientEditForm.id" placeholder="خالی = بدون تغییر"/></a-form-model-item>
+    <a-form-model-item label="رمز جدید"><a-input v-model="nodeClientEditForm.password" placeholder="خالی = بدون تغییر"/></a-form-model-item>
+    <a-form-model-item label="Flow"><a-input v-model="nodeClientEditForm.flow" placeholder="خالی = بدون تغییر"/></a-form-model-item>
+    <a-form-model-item label="Security"><a-input v-model="nodeClientEditForm.security" placeholder="خالی = بدون تغییر"/></a-form-model-item>
+    <a-form-model-item label="Level"><a-input-number v-model="nodeClientEditForm.level" :min="0" :max="255" style="width:100%"/></a-form-model-item>
+    <a-form-model-item label="Alter ID"><a-input-number v-model="nodeClientEditForm.alterId" :min="0" :max="65535" style="width:100%"/></a-form-model-item>
+  </a-form-model>
+  <a-alert type="info" show-icon message="فقط فیلدهای فنی واردشده تغییر می‌کنند؛ فیلدهای خالی حفظ می‌شوند. سهمیه، انقضا و وضعیت فعال/غیرفعال از این فرم تغییر نمی‌کنند."/>
 </a-modal>
 <a-modal :visible="credentialModalVisible" title="اطلاعات اتصال کاربر جدید" @ok="credentialModalVisible=false" @cancel="credentialModalVisible=false" ok-text="بستن" :cancel-button-props="{style:{display:'none'}}">
   <p>نام کاربری: <b>[[ createdEmail ]]</b></p>
@@ -246,7 +260,7 @@ const nodeColumns = [
 function emptyNode(){return {agentMode:false,name:'',remark:'',scheme:'https',address:'',publicAddress:'',port:2053,basePath:'',apiToken:'',enable:true,allowPrivateAddress:false,tlsVerifyMode:'system',pinnedCertSha256:'',inboundSyncMode:'all',inboundTags:'',outboundTag:'',guid:'',parentGuid:'',transitive:false};}
 const app = new Vue({
  delimiters:['[[',']]'], mixins:[MediaQueryMixin], el:'#app',
- data:{themeSwitcher,pageTitle:'Nodes',pageClass:'',loading:false,saving:false,probingId:null,nodes:[],columns:nodeColumns,modalVisible:false,editing:false,editingId:null,form:emptyNode(),selectedNode:null,nodeSnapshot:{inbounds:[],clients:[]},snapshotLoading:false,clientModalVisible:false,clientSaving:false,clientError:'',credentialModalVisible:false,createdEmail:'',createdCredential:'',createdLink:'',configError:'',configLoading:false,clientForm:{mode:'existing',inboundId:null,port:2053,email:'',flow:'',protocol:'vless'}},
+ data:{themeSwitcher,pageTitle:'Nodes',pageClass:'',loading:false,saving:false,probingId:null,nodes:[],columns:nodeColumns,modalVisible:false,editing:false,editingId:null,form:emptyNode(),selectedNode:null,nodeSnapshot:{inbounds:[],clients:[]},snapshotLoading:false,clientModalVisible:false,clientSaving:false,clientError:'',credentialModalVisible:false,createdEmail:'',createdCredential:'',createdLink:'',configError:'',configLoading:false,clientForm:{mode:'existing',inboundId:null,port:2053,email:'',flow:'',protocol:'vless'},nodeClientEditVisible:false,nodeClientEditSaving:false,nodeClientEditForm:{email:'',id:'',password:'',flow:'',security:'',level:null,alterId:null}},
  computed:{
   selectableInbounds(){return (this.nodeSnapshot.inbounds||[]).filter(ib=>ib.enable!==false&&['vless','vmess','trojan'].includes(String(ib.protocol||'').toLowerCase()));}
  },
@@ -321,6 +335,30 @@ const app = new Vue({
   },
   async copyCreatedLink(){if(!this.createdLink)return;try{await navigator.clipboard.writeText(this.createdLink);this.$message.success('کانفیگ اتصال کپی شد');}catch(e){this.$message.warning('کپی خودکار در این مرورگر در دسترس نیست؛ متن کانفیگ را انتخاب و کپی کنید.');}},
   async copyCreatedCredential(){if(!this.createdCredential)return;try{await navigator.clipboard.writeText(this.createdCredential);this.$message.success('شناسه / رمز کپی شد');}catch(e){this.$message.warning('کپی خودکار در این مرورگر در دسترس نیست؛ متن را انتخاب و کپی کنید.');}},
+  editNodeClient(cl){
+   this.nodeClientEditForm={email:cl.email,id:'',password:'',flow:'',security:'',level:null,alterId:null};
+   this.nodeClientEditVisible=true;
+  },
+  async saveNodeClientEdit(){
+   if(!this.selectedNode||!this.nodeClientEditForm.email)return;
+   const f=this.nodeClientEditForm,payload={};
+   if(f.id.trim())payload.id=f.id.trim();
+   if(f.password.trim())payload.password=f.password.trim();
+   if(f.flow.trim())payload.flow=f.flow.trim();
+   if(f.security.trim())payload.security=f.security.trim();
+   if(f.level!==null&&f.level!==undefined)payload.level=Number(f.level);
+   if(f.alterId!==null&&f.alterId!==undefined)payload.alterId=Number(f.alterId);
+   if(!Object.keys(payload).length){this.$message.warning('حداقل یک فیلد فنی را وارد کنید');return;}
+   this.nodeClientEditSaving=true;
+   try{
+    const r=await HttpUtil.post('/panel/api/nodes/clients/update/'+this.selectedNode.id+'/'+encodeURIComponent(f.email),payload);
+    if(!r||!r.success)throw new Error((r&&r.msg)||'ویرایش کاربر ناموفق بود');
+    this.$message.success('مشخصات کاربر در Xray بروزرسانی شد');
+    this.nodeClientEditVisible=false;
+    await this.showNode(this.selectedNode);
+   }catch(e){this.$message.error((e&&e.message)||'ویرایش کاربر ناموفق بود');}
+   finally{this.nodeClientEditSaving=false;}
+  },
   async deleteNodeClient(cl){const r=await HttpUtil.post('/panel/api/nodes/clients/delete/'+this.selectedNode.id+'/'+encodeURIComponent(cl.email),{});if(r&&r.success){this.$message.success('کاربر از نود حذف شد');await this.showNode(this.selectedNode);}else this.$message.error((r&&r.msg)||'حذف کاربر ناموفق بود');},
   async probe(n){this.probingId=n.id;const r=await HttpUtil.post('/panel/api/nodes/probe/'+n.id,{});this.probingId=null;if(r&&r.obj){const i=this.nodes.findIndex(x=>x.id===n.id);if(i>=0)this.$set(this.nodes,i,r.obj);}if(r&&r.success)this.$message.success('اتصال نود برقرار است');else this.$message.warning((r&&r.msg)||'اتصال نود برقرار نشد');},
   async setEnabled(n,v){const r=await HttpUtil.post('/panel/api/nodes/setEnable/'+n.id,{enable:v});if(r&&r.success){n.enable=v;this.$message.success(v?'نود فعال شد':'نود غیرفعال شد');}else await this.loadNodes();},
