@@ -496,7 +496,7 @@
     <a-form-model-item label="نام کاربری" required><a-input v-model.trim="nodeClientForm.email" :disabled="nodeClientEditing" placeholder="مثلاً amin-user-01"/></a-form-model-item>
     <a-form-model-item label="حجم (GB)"><a-input-number v-model="nodeClientForm.totalGB" :min="0" :max="1000000" style="width:100%"/><small>صفر = نامحدود</small></a-form-model-item>
     <a-form-model-item label="Flow" v-if="!nodeClientEditing && managedNodeInbounds.find(x=>x.remoteId===nodeClientForm.inboundId && x.protocol==='vless')"><a-select v-model="nodeClientForm.flow" allow-clear placeholder="بدون Flow"><a-select-option value="xtls-rprx-vision">xtls-rprx-vision</a-select-option></a-select></a-form-model-item>
-    <a-form-model-item label="اعتبار (روز)" v-if="!nodeClientEditing"><a-input-number v-model="nodeClientForm.days" :min="0" :max="36500" style="width:100%"/><small>صفر = بدون انقضا</small></a-form-model-item>
+    <a-form-model-item label="اعتبار (روز)" v-if="!nodeClientEditing && !managedNodes.find(n=>Number(n.id)===Number(nodeClientForm.nodeId))?.agentMode"><a-input-number v-model="nodeClientForm.days" :min="0" :max="36500" style="width:100%"/><small>صفر = بدون انقضا</small></a-form-model-item>
     <a-form-model-item label="روز نسبت به امروز" v-else><a-input-number v-model="nodeClientForm.days" :min="-36500" :max="36500" style="width:100%"/><small>منفی = تاریخ انقضای گذشته؛ صفر = بدون انقضا</small></a-form-model-item>
     <a-form-model-item label="وضعیت" v-if="nodeClientEditing"><a-switch v-model="nodeClientForm.enable" checked-children="فعال" un-checked-children="خاموش"/></a-form-model-item>
   </a-form-model>
@@ -569,7 +569,7 @@
       nodeConfigLink: "",
       nodeClientSaving: false,
       nodeClientEditing: false,
-      nodeClientForm: {nodeId:null,inboundId:null,email:'',totalGB:0,days:30,enable:true,flow:''},
+      nodeClientForm: {nodeId:null,inboundId:null,email:'',totalGB:0,days:0,enable:true,flow:'',mode:'existing',port:2053,protocol:'vless'},
       nodeClientColumns: [
         {title:'کاربر / نود',key:'user',scopedSlots:{customRender:'nodeUser'},width:240},
         {title:'مصرف / سقف',key:'quota',scopedSlots:{customRender:'nodeQuota'},width:140},
@@ -1239,7 +1239,7 @@
         this.managedNodes = (r.obj||[]).filter(n=>n.enable);
         this.managedNodeInbounds = [];
         this.nodeClientEditing = false;
-        this.nodeClientForm = {nodeId:null,inboundId:null,email:'',totalGB:0,days:30,enable:true,flow:''};
+        this.nodeClientForm = {nodeId:null,inboundId:null,email:'',totalGB:0,days:0,enable:true,flow:'',mode:'existing',port:2053,protocol:'vless'};
         this.nodeClientModalVisible = true;
         if (this.managedNodes.length) {
           this.nodeClientForm.nodeId = this.managedNodes[0].id;
@@ -1253,8 +1253,13 @@
         const r = await HttpUtil.get('/panel/api/nodes/snapshot/'+id);
         if (r&&r.success) {
           this.managedNodeInbounds = (r.obj&&r.obj.inbounds)||[];
-          const first=this.managedNodeInbounds.find(x=>x.enable);
+          const first=this.managedNodeInbounds.find(x=>x.enable && ['vless','vmess','trojan'].includes(String(x.protocol||'').toLowerCase()));
           this.nodeClientForm.inboundId=first?first.remoteId:null;
+           const selected=this.managedNodes.find(n=>Number(n.id)===Number(id));
+           this.nodeClientForm.days=selected&&selected.agentMode?0:30;
+           this.nodeClientForm.mode='existing';
+           this.nodeClientForm.port=2053;
+           this.nodeClientForm.protocol='vless';
         } else this.$message.error((r&&r.msg)||'دریافت Inboundها ناموفق بود');
       },
       openNodeClientEdit(row) {
