@@ -596,6 +596,16 @@ func nativeFirstString(value any) string {
  return ""
 }
 
+func nativeFirstStringIncludingEmpty(value any) (string,bool) {
+ switch values:=value.(type) {
+ case []any:
+  if len(values)>0 { candidate,ok:=values[0].(string); return strings.TrimSpace(candidate),ok }
+ case []string:
+  if len(values)>0 { return strings.TrimSpace(values[0]),true }
+ }
+ return "",false
+}
+
 // realityPublicKey derives the client-facing X25519 public key from the
 // privateKey stored in a normal Xray server-side Reality configuration.
 // Xray encodes Reality keys using unpadded URL-safe base64.
@@ -655,13 +665,12 @@ func buildNativeAgentShareLink(publicHost,nodeName string,ib job.NativeAgentInbo
    }
    q.Set("pbk",publicKey)
    if sni:=nativeString(settings,"serverName"); sni!="" { q.Set("sni",sni) } else if sni:=nativeFirstString(cfg["serverNames"]); sni!="" { q.Set("sni",sni) }
-   if fp:=nativeString(settings,"fingerprint"); fp!="" { q.Set("fp",fp) }
+   if fp:=nativeString(settings,"fingerprint"); fp!="" { q.Set("fp",fp) } else if q.Get("fp")=="" { q.Set("fp","chrome") }
    shortID:=nativeString(settings,"shortId")
-   if shortID=="" { shortID=nativeFirstString(cfg["shortIds"]) }
-   if shortID!="" { q.Set("sid",shortID) }
+   if shortID!="" { q.Set("sid",shortID) } else if shortID,ok:=nativeFirstStringIncludingEmpty(cfg["shortIds"]); ok { q.Set("sid",shortID) }
    if spiderX:=nativeString(settings,"spiderX"); spiderX!="" { q.Set("spx",spiderX) }
    if q.Get("sni")=="" { return "","","",fmt.Errorf("هیچ serverName معتبری در Reality تنظیم نشده است") }
-   if q.Get("sid")=="" { return "","","",fmt.Errorf("هیچ shortId معتبری در Reality تنظیم نشده است") }
+   if _,exists:=q["sid"]; !exists { return "","","",fmt.Errorf("هیچ shortId معتبری در Reality تنظیم نشده است") }
   }
  }
  switch network {
