@@ -286,12 +286,21 @@ func (j *NodeTrafficSyncJob) syncNode(n model.Node, now int64) ([]nodeClientDelt
   c.Online = online[email]
   if lastOnline[email] > c.LastOnline { c.LastOnline = lastOnline[email] }
  }
+ next,deltas:=nodeSpeedDelta(j.previous[n.Id],clients,now)
+ j.previous[n.Id]=next
+ rates:=make(map[string]nodeClientDelta,len(deltas))
+ for _,rate:=range deltas { rates[rate.Email]=rate }
  clientRows := make([]model.NodeClientSnapshot,0,len(clients))
  for email,c := range clients {
-  clientRows=append(clientRows,model.NodeClientSnapshot{
+  row:=model.NodeClientSnapshot{
    NodeID:n.Id,Email:email,Up:c.Up,Down:c.Down,Total:c.Total,ExpiryTime:c.ExpiryTime,
    Enable:c.Enable,Online:c.Online,LastOnline:c.LastOnline,LastSyncAt:now,
-  })
+  }
+  if rate,ok:=rates[email];ok {
+   row.UpSpeed=rate.Up*1000/nodeTrafficPollIntervalMs
+   row.DownSpeed=rate.Down*1000/nodeTrafficPollIntervalMs
+  }
+  clientRows=append(clientRows,row)
  }
  db:=database.GetDB()
  err=db.Transaction(func(tx *gorm.DB) error {
@@ -304,8 +313,6 @@ func (j *NodeTrafficSyncJob) syncNode(n model.Node, now int64) ([]nodeClientDelt
   }).Error
  })
  if err!=nil { return nil,nil,nil,err }
- next,deltas:=nodeSpeedDelta(j.previous[n.Id],clients,now)
- j.previous[n.Id]=next
  last := make(map[string]int64,len(clients))
  for email,c:=range clients { if c.LastOnline>0 { last[email]=c.LastOnline } }
  return deltas,onlineEmails,last,nil
