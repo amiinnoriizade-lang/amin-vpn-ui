@@ -510,7 +510,7 @@ func (m *ConfigManager) UpdateClient(tag, email string, patch map[string]interfa
 }
 
 func (m *ConfigManager) DeleteClient(tag, email string) error {
-	if email == "" || len(email) > 128 || strings.ContainsAny(email, "\r\n") {
+	if !validClientEmail(email) {
 		return errors.New("invalid client email")
 	}
 	return m.mutateClients(tag, func(_ string, clients []interface{}) ([]interface{}, error) {
