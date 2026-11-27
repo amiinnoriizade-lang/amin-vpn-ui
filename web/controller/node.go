@@ -177,6 +177,9 @@ func (a *NodeController) probe(c *gin.Context) {
 // Accepts both JSON and form-encoded payloads from the shared HttpUtil client.
 type nodeCreateClientRequest struct {
  InboundID int `form:"inboundId" json:"inboundId"`
+ CreateInbound bool `form:"createInbound" json:"createInbound"`
+ Port int `form:"port" json:"port"`
+ Protocol string `form:"protocol" json:"protocol"`
  Email string `form:"email" json:"email"`
  TotalGB int64 `form:"totalGB" json:"totalGB"`
  Months int `form:"months" json:"months"`
@@ -184,80 +187,122 @@ type nodeCreateClientRequest struct {
  Flow string `form:"flow" json:"flow"`
 }
 
-// createClient provisions a client directly on the selected remote inbound.
+// createClient either provisions on an existing inbound or creates a new listener
+// on the user-selected port before adding the client.
 func (a *NodeController) createClient(c *gin.Context) {
  id, err := strconv.Atoi(c.Param("id"))
- if err != nil || id < 1 {
-  c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "invalid node id"})
-  return
- }
+ if err != nil || id < 1 { c.JSON(http.StatusBadRequest, gin.H{"success":false,"msg":"invalid node id"}); return }
  var n model.Node
- if err = nodeDB().First(&n, id).Error; err != nil {
-  c.JSON(http.StatusNotFound, gin.H{"success": false, "msg": "node not found"})
-  return
- }
- if !n.Enable {
-  c.JSON(http.StatusConflict, gin.H{"success": false, "msg": "node is disabled"})
-  return
- }
- var req nodeCreateClientRequest
- if err = c.ShouldBind(&req); err != nil {
-  c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "invalid request"})
-  return
- }
- req.Email = strings.ToLower(strings.TrimSpace(req.Email))
- if len(req.Email) < 1 || len(req.Email) > 64 {
-  c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "username must be 1 to 64 characters"})
-  return
- }
- for _, r := range req.Email {
-  if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '_' || r == '-') {
-   c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "username may contain only letters, numbers, dot, underscore and dash"})
-   return
-  }
- }
- if req.InboundID < 1 || req.TotalGB < 0 || req.TotalGB > 1000000 || req.Months < 0 || req.Months > 120 || req.Days < 0 || req.Days > 36500 {
-  c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "invalid inbound, volume or validity"})
-  return
- }
- var inbound model.NodeInboundSnapshot
- if err = nodeDB().Where("node_id = ? AND remote_id = ?", id, req.InboundID).First(&inbound).Error; err != nil {
-  c.JSON(http.StatusNotFound, gin.H{"success": false, "msg": "inbound not found in this node snapshot; wait for synchronization"})
-  return
- }
- if !inbound.Enable {
-  c.JSON(http.StatusConflict, gin.H{"success": false, "msg": "selected inbound is disabled"})
-  return
- }
- protocol := strings.ToLower(strings.TrimSpace(inbound.Protocol))
- if protocol != "vless" && protocol != "vmess" && protocol != "trojan" {
-  c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "client creation currently supports VLESS, VMess and Trojan inbounds"})
-  return
- }
- if req.Flow != "" && protocol != "vless" {
-  c.JSON(http.StatusBadRequest, gin.H{"success": false, "msg": "flow is only available for VLESS"})
-  return
- }
- if n.AgentMode {
-  if req.TotalGB != 0 || req.Months != 0 || req.Days != 0 {
-   c.JSON(http.StatusNotImplemented,gin.H{"success":false,"msg":"AMIN Node Agent 0.2.1 does not yet enforce traffic quotas or expiry; use unlimited volume and no expiry for this node"}); return
-  }
-  if inbound.RemoteTag=="" { c.JSON(http.StatusConflict,gin.H{"success":false,"msg":"native inbound tag is not synchronized yet; refresh the node snapshot"}); return }
-  ctx,cancel:=context.WithTimeout(c.Request.Context(),20*time.Second); defer cancel()
+ if err = nodeDB().First(&n,id).Error; err != nil { c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"node not found"}); return }
+ if !n.Enable { c.JSON(http.StatusConflict,gin.H{"success":false,"msg":"node is disabled"}); return }
 
-  // Validate the selected snapshot entry against the Agent's current Xray state.
-  liveInbounds,liveErr:=job.NativeAgentListInbounds(ctx,n)
-  if liveErr!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"could not refresh live Agent inbounds: "+liveErr.Error()}); return }
-  var liveInbound *job.NativeAgentInbound
-  for i:=range liveInbounds { if liveInbounds[i].Tag==inbound.RemoteTag { liveInbound=&liveInbounds[i]; break } }
-  if liveInbound==nil { c.JSON(http.StatusConflict,gin.H{"success":false,"msg":"selected inbound no longer exists on AMIN Agent; refresh the inbound list"}); return }
-  if liveInbound.Port!=inbound.Port || !strings.EqualFold(strings.TrimSpace(liveInbound.Protocol),protocol) {
-   c.JSON(http.StatusConflict,gin.H{"success":false,"msg":"selected inbound changed on AMIN Agent; refresh the inbound list and try again"}); return
+ var req nodeCreateClientRequest
+ if err = c.ShouldBind(&req); err != nil { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid request"}); return }
+ req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+ if len(req.Email)<1 || len(req.Email)>64 { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"username must be 1 to 64 characters"}); return }
+ for _,r:=range req.Email {
+  if !(r>='a'&&r<='z'||r>='A'&&r<='Z'||r>='0'&&r<='9'||r=='.'||r=='_'||r=='-') {
+   c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"username may contain only letters, numbers, dot, underscore and dash"}); return
   }
+ }
+ if req.TotalGB<0 || req.TotalGB>1000000 || req.Months<0 || req.Months>120 || req.Days<0 || req.Days>36500 {
+  c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid volume or validity"}); return
+ }
+
+ var inbound model.NodeInboundSnapshot
+ protocol := strings.ToLower(strings.TrimSpace(req.Protocol))
+ if req.CreateInbound {
+  if !n.AgentMode { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"creating a new inbound with a custom port is currently supported on AMIN Agent nodes"}); return }
+  if req.Port<1 || req.Port>65535 { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"port must be between 1 and 65535"}); return }
+  if protocol=="" { protocol="vless" }
+  if protocol!="vless" && protocol!="vmess" && protocol!="trojan" {
+   c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"supported protocols are VLESS, VMess and Trojan"}); return
+  }
+ } else {
+  if req.InboundID<1 { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"select an existing inbound or choose a new custom port"}); return }
+  if err=nodeDB().Where("node_id = ? AND remote_id = ?",id,req.InboundID).First(&inbound).Error; err!=nil {
+   c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"inbound not found in this node snapshot; refresh the inbound list"}); return
+  }
+  if !inbound.Enable { c.JSON(http.StatusConflict,gin.H{"success":false,"msg":"selected inbound is disabled"}); return }
+  protocol=strings.ToLower(strings.TrimSpace(inbound.Protocol))
+ }
+ if protocol!="vless" && protocol!="vmess" && protocol!="trojan" {
+  c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"client creation currently supports VLESS, VMess and Trojan inbounds"}); return
+ }
+ if req.Flow!="" && protocol!="vless" { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"flow is only available for VLESS"}); return }
+
+ if n.AgentMode {
+  if req.TotalGB!=0 || req.Months!=0 || req.Days!=0 {
+   c.JSON(http.StatusNotImplemented,gin.H{"success":false,"msg":"AMIN Node Agent 0.2.1 does not yet enforce traffic quotas or expiry; use unlimited volume and no expiry"}); return
+  }
+  ctx,cancel:=context.WithTimeout(c.Request.Context(),25*time.Second); defer cancel()
+  liveInbounds,liveErr:=job.NativeAgentListInbounds(ctx,n)
+  if liveErr!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"could not read live Agent inbounds: "+liveErr.Error()}); return }
+
+  if req.CreateInbound {
+   for _,live:=range liveInbounds {
+    if live.Port==req.Port {
+     c.JSON(http.StatusConflict,gin.H{"success":false,"msg":fmt.Sprintf("port %d is already assigned to inbound %q (%s); choose another port or use that existing inbound",req.Port,live.Tag,live.Protocol)}); return
+    }
+   }
+   tag:="amin-ui-"+protocol+"-"+strconv.Itoa(req.Port)+"-"+strings.ReplaceAll(uuid.NewString()[:8],"-","")
+   settings:=map[string]any{"clients":[]any{}}
+   if protocol=="vless" { settings["decryption"]="none" }
+   payload:=map[string]any{
+    "tag":tag,
+    "port":req.Port,
+    "listen":"0.0.0.0",
+    "protocol":protocol,
+    "settings":settings,
+    "streamSettings":map[string]any{"network":"tcp","security":"none"},
+   }
+   if err=job.NativeAgentCreateInbound(ctx,n,payload); err!=nil {
+    c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":err.Error()}); return
+   }
+   // Never proceed to user creation until the Agent reports the new listener
+   // back with the exact tag, protocol and selected port.
+   liveInbounds,liveErr=job.NativeAgentListInbounds(ctx,n)
+   if liveErr!=nil {
+    c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"inbound creation was accepted, but the new inbound could not be verified: "+liveErr.Error()}); return
+   }
+   found:=false
+   for _,live:=range liveInbounds {
+    if live.Tag==tag && live.Port==req.Port && strings.EqualFold(live.Protocol,protocol) {
+     found=true
+     inbound=model.NodeInboundSnapshot{NodeID:id,RemoteID:job.NativeAgentInboundID(tag),Tag:tag,RemoteTag:tag,Remark:tag,Protocol:protocol,Listen:live.Listen,Port:live.Port,Enable:true,ClientCount:0,LastSyncAt:time.Now().UnixMilli()}
+     break
+    }
+   }
+   if !found {
+    c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":fmt.Sprintf("Agent accepted inbound creation, but port %d is not present in its live inbound list; no user was created",req.Port)}); return
+   }
+   if err=nodeDB().Create(&inbound).Error; err!=nil {
+    c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"inbound was created on the Agent but could not be saved in the panel snapshot; refresh the node before retrying: "+err.Error()}); return
+   }
+   req.InboundID=inbound.RemoteID
+  } else {
+   if inbound.RemoteTag=="" { c.JSON(http.StatusConflict,gin.H{"success":false,"msg":"native inbound tag is missing; refresh the node snapshot"}); return }
+   found:=false
+   for _,live:=range liveInbounds {
+    if live.Tag==inbound.RemoteTag {
+     if live.Port!=inbound.Port || !strings.EqualFold(strings.TrimSpace(live.Protocol),protocol) {
+      c.JSON(http.StatusConflict,gin.H{"success":false,"msg":"selected inbound changed on AMIN Agent; refresh the inbound list"}); return
+     }
+     found=true
+     break
+    }
+   }
+   if !found { c.JSON(http.StatusConflict,gin.H{"success":false,"msg":"selected inbound no longer exists on AMIN Agent; refresh the inbound list"}); return }
+  }
+
+  // Check duplicate usernames against the selected live inbound.
+  var liveSelected *job.NativeAgentInbound
+  for i:=range liveInbounds { if liveInbounds[i].Tag==inbound.RemoteTag { liveSelected=&liveInbounds[i]; break } }
+  if liveSelected==nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"selected inbound disappeared before user creation"}); return }
   var liveSettings struct { Clients []struct { Email string `json:"email"` } `json:"clients"` }
-  if len(liveInbound.Settings)>0 {
-   if decodeErr:=json.Unmarshal(liveInbound.Settings,&liveSettings); decodeErr!=nil {
-    c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"could not read selected inbound clients from AMIN Agent: "+decodeErr.Error()}); return
+  if len(liveSelected.Settings)>0 {
+   if decodeErr:=json.Unmarshal(liveSelected.Settings,&liveSettings); decodeErr!=nil {
+    c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"could not read selected inbound clients: "+decodeErr.Error()}); return
    }
   }
   for _,existing:=range liveSettings.Clients {
@@ -265,30 +310,31 @@ func (a *NodeController) createClient(c *gin.Context) {
     c.JSON(http.StatusConflict,gin.H{"success":false,"msg":"this username already exists on the selected inbound"}); return
    }
   }
-
   client:=map[string]any{"email":req.Email,"level":0}
   switch protocol { case "vless","vmess": client["id"]=uuid.NewString(); case "trojan": client["password"]=uuid.NewString() }
   if req.Flow!="" { client["flow"]=req.Flow }
   if err=job.NativeAgentCreateClient(ctx,n,inbound.RemoteTag,client); err!=nil {
-   c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"AMIN Agent rejected client creation: "+err.Error()}); return
+   msg:="AMIN Agent rejected client creation: "+err.Error()
+   if req.CreateInbound { msg=fmt.Sprintf("Inbound on port %d was created, but user creation failed: %s. The inbound was kept; refresh the list and retry on that inbound.",req.Port,err.Error()) }
+   c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":msg}); return
   }
-
-  // Confirm the username is now visible in the selected inbound's live Xray config.
   verified:=false
   for attempt:=0;attempt<4;attempt++ {
    var verifyErr error
    verified,verifyErr=job.NativeAgentInboundHasClient(ctx,n,inbound.RemoteTag,req.Email)
-   if verifyErr!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"Agent accepted the create request, but live Xray verification failed: "+verifyErr.Error()}); return }
+   if verifyErr!=nil {
+    c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"Agent accepted the user request, but live Xray verification failed: "+verifyErr.Error()}); return
+   }
    if verified { break }
    if attempt<3 {
-    select { case <-ctx.Done(): c.JSON(http.StatusGatewayTimeout,gin.H{"success":false,"msg":"Agent accepted the create request, but the user did not appear in Xray before verification timed out"}); return
+    select { case <-ctx.Done(): c.JSON(http.StatusGatewayTimeout,gin.H{"success":false,"msg":"Agent accepted the request, but the user did not appear in Xray before verification timed out"}); return
     case <-time.After(200*time.Millisecond): }
    }
   }
-  if !verified { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"Agent accepted the create request, but the username is not present in the selected inbound's live Xray configuration"}); return }
+  if !verified { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"Agent accepted the request, but the username is not present in the selected inbound's live Xray configuration"}); return }
 
-  // Upsert without deleting an existing node/email snapshot or resetting counters.
   dbErr:=nodeDB().Transaction(func(tx *gorm.DB) error {
+   if updateErr:=tx.Model(&model.NodeInboundSnapshot{}).Where("node_id = ? AND remote_id = ?",id,req.InboundID).Updates(map[string]any{"client_count":len(liveSettings.Clients)+1,"last_sync_at":time.Now().UnixMilli()}).Error; updateErr!=nil { return updateErr }
    var snapshot model.NodeClientSnapshot
    findErr:=tx.Where("node_id = ? AND email = ?",id,req.Email).First(&snapshot).Error
    if findErr==gorm.ErrRecordNotFound {
@@ -296,49 +342,28 @@ func (a *NodeController) createClient(c *gin.Context) {
     if createErr:=tx.Create(&snapshot).Error; createErr!=nil { return createErr }
    } else if findErr!=nil { return findErr
    } else if updateErr:=tx.Model(&snapshot).Updates(map[string]any{"enable":true,"last_sync_at":time.Now().UnixMilli()}).Error; updateErr!=nil { return updateErr }
-   if updateErr:=tx.Model(&model.NodeInboundSnapshot{}).Where("node_id = ? AND remote_id = ?",id,req.InboundID).Update("client_count",len(liveSettings.Clients)+1).Error; updateErr!=nil { return updateErr }
    var clientCount int64
    if countErr:=tx.Model(&model.NodeClientSnapshot{}).Where("node_id = ?",id).Count(&clientCount).Error; countErr!=nil { return countErr }
    return tx.Model(&model.Node{}).Where("id = ?",id).Update("client_count",clientCount).Error
   })
-  if dbErr!=nil {
-   c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"user was created and verified on Xray, but the local snapshot could not be updated; refresh the node to synchronize it: "+dbErr.Error()}); return
-  }
+  if dbErr!=nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"user was created and verified in Xray, but panel snapshot update failed; refresh the node: "+dbErr.Error()}); return }
   credential:=client["id"]; if credential==nil { credential=client["password"] }
   c.JSON(http.StatusOK,gin.H{"success":true,"obj":gin.H{"nodeId":id,"inboundId":req.InboundID,"inbound":inbound.Remark,"protocol":protocol,"port":inbound.Port,"email":req.Email,"id":client["id"],"password":client["password"],"credential":credential}})
   return
  }
- expiry := int64(0)
- if req.Days > 0 {
-  expiry = time.Now().AddDate(0, 0, req.Days).UnixMilli()
- } else if req.Months > 0 {
-  expiry = time.Now().AddDate(0, req.Months, 0).UnixMilli()
- }
- payload := map[string]any{
-  "client": map[string]any{
-   "email": req.Email, "totalGB": req.TotalGB * (1 << 30),
-   "expiryTime": expiry, "enable": true, "flow": req.Flow,
-  },
-  "inboundIds": []int{req.InboundID},
- }
- body, err := json.Marshal(payload)
- if err != nil {
-  c.JSON(http.StatusInternalServerError, gin.H{"success": false, "msg": "could not encode client request"})
-  return
- }
- ctx, cancel := context.WithTimeout(c.Request.Context(), 12*time.Second)
- defer cancel()
- if _, err = job.CreateNodeClient(ctx, n, body); err != nil {
-  c.JSON(http.StatusBadGateway, gin.H{"success": false, "msg": err.Error()})
-  return
- }
- _ = nodeDB().Where("node_id = ? AND email = ?", id, req.Email).Delete(&model.NodeClientSnapshot{}).Error
- _ = nodeDB().Create(&model.NodeClientSnapshot{NodeID:id,Email:req.Email,Total:req.TotalGB * (1 << 30),ExpiryTime:expiry,Enable:true,LastSyncAt:time.Now().UnixMilli()}).Error
- c.JSON(http.StatusOK, gin.H{"success": true, "obj": gin.H{
-  "nodeId": id, "inboundId": req.InboundID, "inbound": inbound.Remark,
-  "protocol": protocol, "email": req.Email,
-  "totalGB": req.TotalGB * (1 << 30), "expiryTime": expiry,
- }})
+
+ // Sanaei-compatible nodes continue to use their existing inbound and client API.
+ if req.CreateInbound { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"custom inbound creation requires an AMIN Agent node"}); return }
+ expiry:=int64(0)
+ if req.Days>0 { expiry=time.Now().AddDate(0,0,req.Days).UnixMilli() } else if req.Months>0 { expiry=time.Now().AddDate(0,req.Months,0).UnixMilli() }
+ payload:=map[string]any{"client":map[string]any{"email":req.Email,"totalGB":req.TotalGB*(1<<30),"expiryTime":expiry,"enable":true,"flow":req.Flow},"inboundIds":[]int{req.InboundID}}
+ body,err:=json.Marshal(payload)
+ if err!=nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"could not encode client request"}); return }
+ ctx,cancel:=context.WithTimeout(c.Request.Context(),12*time.Second); defer cancel()
+ if _,err=job.CreateNodeClient(ctx,n,body); err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":err.Error()}); return }
+ _=nodeDB().Where("node_id = ? AND email = ?",id,req.Email).Delete(&model.NodeClientSnapshot{}).Error
+ _=nodeDB().Create(&model.NodeClientSnapshot{NodeID:id,Email:req.Email,Total:req.TotalGB*(1<<30),ExpiryTime:expiry,Enable:true,LastSyncAt:time.Now().UnixMilli()}).Error
+ c.JSON(http.StatusOK,gin.H{"success":true,"obj":gin.H{"nodeId":id,"inboundId":req.InboundID,"inbound":inbound.Remark,"protocol":protocol,"email":req.Email,"totalGB":req.TotalGB*(1<<30),"expiryTime":expiry}})
 }
 
 // snapshot returns the last successfully synchronized, credential-free view of a node.
