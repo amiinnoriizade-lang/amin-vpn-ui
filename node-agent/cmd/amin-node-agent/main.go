@@ -122,8 +122,14 @@ func inboundAPI(manager *xray.ConfigManager) http.HandlerFunc {
 					email := r.URL.Query().Get("email")
 					if err := manager.DeleteClient(parts[0], email); err != nil { writeError(w, err); return }
 					writeJSON(w, http.StatusOK, envelope{Success: true, Msg: "client deleted"})
+				case http.MethodPut:
+					email := r.URL.Query().Get("email")
+					var patch map[string]interface{}
+					if err := decodeBody(w, r, &patch); err != nil { writeError(w, err); return }
+					if err := manager.UpdateClient(parts[0], email, patch); err != nil { writeError(w, err); return }
+					writeJSON(w, http.StatusOK, envelope{Success: true, Msg: "client updated"})
 				default:
-					w.Header().Set("Allow", "POST, DELETE")
+					w.Header().Set("Allow", "POST, PUT, DELETE")
 					writeJSON(w, http.StatusMethodNotAllowed, envelope{Success: false, Msg: "method not allowed"})
 				}
 				return
@@ -168,7 +174,7 @@ func main() {
 	protected := http.NewServeMux()
 	protected.HandleFunc("/api/v1/capabilities", method(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 		features := []string{"health", "system", "capabilities"}
-		if manager != nil { features = append(features, "inbounds.list", "inbounds.create", "inbounds.delete", "clients.create", "clients.delete") }
+		if manager != nil { features = append(features, "inbounds.list", "inbounds.create", "inbounds.delete", "clients.create", "clients.update", "clients.delete") }
 		writeJSON(w, http.StatusOK, envelope{Success: true, Obj: map[string]interface{}{
 			"agentVersion": "0.2.2", "xrayManagement": manager != nil, "features": features,
 			"protocols": []string{"vless", "vmess", "trojan", "shadowsocks"},
