@@ -316,22 +316,30 @@ func (a *NodeController) createClient(c *gin.Context) {
   if err=job.NativeAgentCreateClient(ctx,n,inbound.RemoteTag,client); err!=nil {
    msg:="AMIN Agent rejected client creation: "+err.Error()
    if req.CreateInbound { msg=fmt.Sprintf("Inbound on port %d was created, but user creation failed: %s. The inbound was kept; refresh the list and retry on that inbound.",req.Port,err.Error()) }
-   c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":msg}); return
+   obj:=any(nil)
+   if req.CreateInbound { obj=gin.H{"inboundId":req.InboundID,"port":inbound.Port,"tag":inbound.RemoteTag} }
+   c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":msg,"obj":obj}); return
   }
   verified:=false
   for attempt:=0;attempt<4;attempt++ {
    var verifyErr error
    verified,verifyErr=job.NativeAgentInboundHasClient(ctx,n,inbound.RemoteTag,req.Email)
    if verifyErr!=nil {
-    c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"Agent accepted the user request, but live Xray verification failed: "+verifyErr.Error()}); return
+    obj:=any(nil)
+    if req.CreateInbound { obj=gin.H{"inboundId":req.InboundID,"port":inbound.Port,"tag":inbound.RemoteTag} }
+    c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"Agent accepted the user request, but live Xray verification failed: "+verifyErr.Error(),"obj":obj}); return
    }
    if verified { break }
    if attempt<3 {
-    select { case <-ctx.Done(): c.JSON(http.StatusGatewayTimeout,gin.H{"success":false,"msg":"Agent accepted the request, but the user did not appear in Xray before verification timed out"}); return
+    select { case <-ctx.Done():
+     obj:=any(nil); if req.CreateInbound { obj=gin.H{"inboundId":req.InboundID,"port":inbound.Port,"tag":inbound.RemoteTag} }
+     c.JSON(http.StatusGatewayTimeout,gin.H{"success":false,"msg":"Agent accepted the request, but the user did not appear in Xray before verification timed out","obj":obj}); return
     case <-time.After(200*time.Millisecond): }
    }
   }
-  if !verified { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"Agent accepted the request, but the username is not present in the selected inbound's live Xray configuration"}); return }
+  if !verified { obj:=any(nil)
+   if req.CreateInbound { obj=gin.H{"inboundId":req.InboundID,"port":inbound.Port,"tag":inbound.RemoteTag} }
+   c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"Agent accepted the request, but the username is not present in the selected inbound's live Xray configuration","obj":obj}); return }
 
   dbErr:=nodeDB().Transaction(func(tx *gorm.DB) error {
    if updateErr:=tx.Model(&model.NodeInboundSnapshot{}).Where("node_id = ? AND remote_id = ?",id,req.InboundID).Updates(map[string]any{"client_count":len(liveSettings.Clients)+1,"last_sync_at":time.Now().UnixMilli()}).Error; updateErr!=nil { return updateErr }
