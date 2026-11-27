@@ -171,6 +171,11 @@
         <input class="ant-input" type="number" min="1" max="65535" v-model.number="form.port" style="display:block;width:100%;margin-top:5px"/>
       </label>
     </div>
+    <label v-if="form.agentMode" style="display:block;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--surface-2)">
+      **آدرس عمومی اتصال کاربران (الزامی برای ساخت کانفیگ)**
+      <input class="ant-input" v-model="form.publicAddress" placeholder="IP یا دامنه عمومی سرور مقصد؛ نه 127.0.0.1" style="display:block;width:100%;margin-top:5px"/>
+      <small style="display:block;margin-top:5px;color:var(--muted)">این آدرس داخل لینک VLESS/VMess/Trojan قرار می‌گیرد. آدرس بالا صرفاً مسیر مدیریتی Agent است و ممکن است 127.0.0.1 باشد.</small>
+    </label>
     <label style="display:block">Base Path
       <input class="ant-input" v-model="form.basePath" :placeholder="form.agentMode ? 'خالی بگذارید' : '/'" style="display:block;width:100%;margin-top:5px"/>
     </label>
@@ -229,7 +234,7 @@ const nodeColumns = [
  {title:'فعال',key:'enable',scopedSlots:{customRender:'nodeEnabled'},width:70,align:'center'},
  {title:'عملیات',key:'actions',scopedSlots:{customRender:'nodeActions'},width:170,align:'center'}
 ];
-function emptyNode(){return {agentMode:false,name:'',remark:'',scheme:'https',address:'',port:2053,basePath:'',apiToken:'',enable:true,allowPrivateAddress:false,tlsVerifyMode:'system',pinnedCertSha256:'',inboundSyncMode:'all',inboundTags:'',outboundTag:'',guid:'',parentGuid:'',transitive:false};}
+function emptyNode(){return {agentMode:false,name:'',remark:'',scheme:'https',address:'',publicAddress:'',port:2053,basePath:'',apiToken:'',enable:true,allowPrivateAddress:false,tlsVerifyMode:'system',pinnedCertSha256:'',inboundSyncMode:'all',inboundTags:'',outboundTag:'',guid:'',parentGuid:'',transitive:false};}
 const app = new Vue({
  delimiters:['[[',']]'], mixins:[MediaQueryMixin], el:'#app',
  data:{themeSwitcher,pageTitle:'Nodes',pageClass:'',loading:false,saving:false,probingId:null,nodes:[],columns:nodeColumns,modalVisible:false,editing:false,editingId:null,form:emptyNode(),selectedNode:null,nodeSnapshot:{inbounds:[],clients:[]},snapshotLoading:false,clientModalVisible:false,clientSaving:false,clientError:'',credentialModalVisible:false,createdEmail:'',createdCredential:'',clientForm:{mode:'existing',inboundId:null,port:2053,email:'',flow:'',protocol:'vless'}},
