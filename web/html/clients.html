@@ -443,10 +443,10 @@
                     <b>[[ r.email ]]</b><div style="font-size:11px;color:var(--muted)">[[ r.nodeName ]] · [[ r.nodeAddress ]]</div>
                   </template>
                   <template slot="nodeQuota" slot-scope="v,r">
-                    [[ sizeFormat((r.up||0)+(r.down||0)) ]] / [[ r.total===0 ? 'نامحدود' : sizeFormat(r.total) ]]
+                    [[ sizeFormat((r.up||0)+(r.down||0)) ]] / [[ r.agentMode || r.total===0 ? 'نامحدود' : sizeFormat(r.total) ]]
                   </template>
                   <template slot="nodeExpiry" slot-scope="v,r">
-                    [[ r.expiryTime ? new Date(r.expiryTime).toLocaleDateString() : 'بدون انقضا' ]]
+                    [[ r.agentMode ? 'بدون انقضا (Agent)' : (r.expiryTime ? new Date(r.expiryTime).toLocaleDateString() : 'بدون انقضا') ]]
                   </template>
                   <template slot="nodeState" slot-scope="v,r">
                     <a-tag :color="r.enable?'green':'red'">[[ r.enable?'فعال':'غیرفعال' ]]</a-tag>
@@ -455,7 +455,7 @@
                   <template slot="nodeActions" slot-scope="v,r">
                     <a-space>
                       <a-button size="small" icon="eye" @click="showNodeClientConfig(r)">کانفیگ</a-button>
-                      <a-button size="small" icon="edit" @click="openNodeClientEdit(r)">ویرایش</a-button>
+                      <a-button v-if="!r.agentMode" size="small" icon="edit" @click="openNodeClientEdit(r)">ویرایش</a-button>
                       <a-button size="small" type="danger" icon="delete" @click="deleteNodeClient(r)">حذف</a-button>
                     </a-space>
                   </template>
