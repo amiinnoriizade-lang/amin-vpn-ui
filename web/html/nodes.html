@@ -249,6 +249,8 @@ const nodeClientColumns = [
  {title:'نام کاربری',dataIndex:'email',key:'email'},
  {title:'وضعیت',key:'enable',scopedSlots:{customRender:'clientEnabled'},width:100},
  {title:'حجم مصرفی',customRender:(v,r)=>((Number(r.up||0)+Number(r.down||0))/1073741824).toFixed(3)+' GB',width:120},
+ {title:'دانلود زنده',customRender:(v,r)=>app.formatRate(r.downSpeed),width:110},
+ {title:'آپلود زنده',customRender:(v,r)=>app.formatRate(r.upSpeed),width:110},
  {title:'عملیات',key:'actions',scopedSlots:{customRender:'clientActions'},width:100}
 ];
 const nodeColumns = [
