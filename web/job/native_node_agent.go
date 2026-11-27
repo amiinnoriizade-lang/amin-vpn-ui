@@ -250,6 +250,7 @@ func syncNativeAgentNode(n model.Node, now int64, previous map[string]nodeCounte
    if client := clients[email]; client != nil {
     if sample.Up >= 0 { client.Up = sample.Up }
     if sample.Down >= 0 { client.Down = sample.Down }
+    client.Online = sample.Online
    }
   }
  } else {
@@ -283,6 +284,8 @@ func syncNativeAgentNode(n model.Node, now int64, previous map[string]nodeCounte
   for email := range previous { delete(previous, email) }
   for email, sample := range next { previous[email] = sample }
  }
+ onlineEmails := make([]string,0,len(clients))
+ for email,client := range clients { if client.Online { onlineEmails=append(onlineEmails,email) } }
  clientRows:=make([]model.NodeClientSnapshot,0,len(clients))
  for email,client:=range clients {
   client.Total = client.Up + client.Down
@@ -307,7 +310,7 @@ func syncNativeAgentNode(n model.Node, now int64, previous map[string]nodeCounte
   }).Error
  })
  if err!=nil { return nil,nil,nil,err }
- return deltas,[]string{},map[string]int64{},nil
+ return deltas,onlineEmails,map[string]int64{},nil
 }
 
 func probeNativeAgentNode(n model.Node) map[string]any {
