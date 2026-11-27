@@ -1304,8 +1304,6 @@
             {totalBytes:(f.totalGB===f.originalTotalGB?f.totalBytes:f.totalGB*1073741824),expiryTime,enable:f.enable});
         } else {
           const inboundId=Number(f.inboundId);
-          const selectedNode=this.managedNodes.find(n=>Number(n.id)===Number(f.nodeId));
-          const isAgent=!!(selectedNode&&selectedNode.agentMode);
           const totalGB=isAgent?0:(Number(f.totalGB)||0);
           const days=isAgent?0:(Number(f.days)||0);
           if ((!creatingNew && (!Number.isSafeInteger(inboundId) || inboundId<1)) || !Number.isFinite(totalGB) || totalGB<0 || !Number.isInteger(days) || days<0 || (creatingNew && (!Number.isInteger(Number(f.port)) || Number(f.port)<1 || Number(f.port)>65535))) {
