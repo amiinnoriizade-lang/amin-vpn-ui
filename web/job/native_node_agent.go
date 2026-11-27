@@ -146,6 +146,22 @@ func NativeAgentInboundHasClient(ctx context.Context, n model.Node, tag, email s
  return false, fmt.Errorf("inbound %q is no longer present on AMIN Agent", tag)
 }
 
+// NativeAgentUpdateClient applies a validated, protocol-specific patch to one
+// client without replacing its other credentials or Xray settings.
+func NativeAgentUpdateClient(ctx context.Context, n model.Node, tag, email string, patch map[string]any) error {
+	tag = strings.TrimSpace(tag)
+	email = strings.TrimSpace(email)
+	if tag == "" || email == "" || len(patch) == 0 {
+		return fmt.Errorf("inbound tag, client email and at least one update field are required")
+	}
+	body, err := json.Marshal(patch)
+	if err != nil { return fmt.Errorf("encode AMIN Agent client update: %w", err) }
+	endpoint := "api/v1/inbounds/" + url.PathEscape(tag) + "/clients?email=" + url.QueryEscape(email)
+	_, err = nodeRequestBody(ctx, n, http.MethodPut, endpoint, body)
+	if err != nil { return fmt.Errorf("AMIN Agent client update failed: %w", err) }
+	return nil
+}
+
 func NativeAgentDeleteClient(ctx context.Context, n model.Node, tag, email string) error {
  if strings.TrimSpace(tag)=="" || strings.TrimSpace(email)=="" { return fmt.Errorf("inbound tag and client email are required") }
  endpoint := "api/v1/inbounds/" + url.PathEscape(tag) + "/clients?email=" + url.QueryEscape(email)
