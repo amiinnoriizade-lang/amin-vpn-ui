@@ -361,7 +361,7 @@ func (m *ConfigManager) AddClient(tag string, client map[string]interface{}) err
 		}
 	}
 	email := stringField(client, "email")
-	if email == "" || len(email) > 128 || strings.ContainsAny(email, "\r\n") {
+	if !validClientEmail(email) {
 		return errors.New("client email is required and must be valid")
 	}
 	if len(client) == 0 {
@@ -419,8 +419,20 @@ func (m *ConfigManager) AddClient(tag string, client map[string]interface{}) err
 
 // UpdateClient applies a restricted patch to one existing Xray client while
 // preserving all credentials and settings not explicitly changed by the caller.
+func validClientEmail(email string) bool {
+	if email == "" || len(email) > 128 || strings.TrimSpace(email) != email {
+		return false
+	}
+	for _, r := range email {
+		if r == '\r' || r == '\n' || r == ' ' || r == '\t' {
+			return false
+		}
+	}
+	return true
+}
+
 func (m *ConfigManager) UpdateClient(tag, email string, patch map[string]interface{}) error {
-	if email == "" || len(email) > 128 || strings.ContainsAny(email, "\\r\\n") {
+	if !validClientEmail(email) {
 		return errors.New("invalid client email")
 	}
 	allowed := map[string]bool{"id": true, "password": true, "flow": true, "level": true, "alterId": true, "security": true}
