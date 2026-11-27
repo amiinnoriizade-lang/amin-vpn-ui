@@ -57,6 +57,29 @@ func TestAddClientValidatesUUIDAndDuplicateCredentials(t *testing.T) {
 	if err := m.AddClient("vless-in", map[string]interface{}{"email":"duplicate-id","id":"00000000-0000-4000-8000-000000000001"}); err == nil { t.Fatal("expected duplicate UUID to be rejected") }
 	if err := m.AddClient("vless-in", map[string]interface{}{"email":"bad email","id":"00000000-0000-4000-8000-000000000002"}); err == nil { t.Fatal("expected whitespace in email to be rejected") }
 }
+func TestUpdateClientValidatesPatchAndPreservesIdentity(t *testing.T) {
+	m := testManager(t, map[string]interface{}{"inbounds": []interface{}{
+		map[string]interface{}{"tag":"vless-in","protocol":"vless","settings":map[string]interface{}{"clients":[]interface{}{
+			map[string]interface{}{"email":"alice","id":"00000000-0000-4000-8000-000000000001","flow":"xtls-rprx-vision"},
+		}}},
+	}})
+	if err := m.UpdateClient("vless-in", "alice", map[string]interface{}{}); err == nil {
+		t.Fatal("expected empty patch to be rejected")
+	}
+	if err := m.UpdateClient("vless-in", "alice", map[string]interface{}{"email":"mallory"}); err == nil {
+		t.Fatal("expected identity-changing patch to be rejected")
+	}
+	if err := m.UpdateClient("vless-in", "alice", map[string]interface{}{"id":"not-a-uuid"}); err == nil {
+		t.Fatal("expected invalid replacement UUID to be rejected")
+	}
+	if err := m.UpdateClient("vless-in", "missing", map[string]interface{}{"flow":"xtls-rprx-vision"}); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected missing client error, got %v", err)
+	}
+	if err := m.UpdateClient("vless-in", "alice", map[string]interface{}{"flow":"xtls-rprx-vision"}); err == nil || !strings.Contains(err.Error(), "Xray rejected config") {
+		t.Fatalf("expected validation to reach Xray config test without changing identity, got %v", err)
+	}
+}
+
 func TestDeleteMissingInbound(t *testing.T) {
 	m := testManager(t, map[string]interface{}{"inbounds": []interface{}{}})
 	err := m.DeleteInbound("not-found")
