@@ -7,6 +7,7 @@ on:
     paths:
       - "database/model/node*.go"
       - "web/controller/node.go"
+      - "web/controller/*_test.go"
       - "web/job/node*.go"
       - "web/html/nodes.html"
       - "config/version"
