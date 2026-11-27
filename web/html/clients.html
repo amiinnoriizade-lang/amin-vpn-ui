@@ -494,10 +494,11 @@
       </a-select>
     </a-form-model-item>
     <a-form-model-item label="نام کاربری" required><a-input v-model.trim="nodeClientForm.email" :disabled="nodeClientEditing" placeholder="مثلاً amin-user-01"/></a-form-model-item>
-    <a-form-model-item label="حجم (GB)"><a-input-number v-model="nodeClientForm.totalGB" :min="0" :max="1000000" style="width:100%"/><small>صفر = نامحدود</small></a-form-model-item>
+    <a-form-model-item label="حجم (GB)" v-if="!selectedManagedNodeIsAgent || nodeClientEditing"><a-input-number v-model="nodeClientForm.totalGB" :min="0" :max="1000000" style="width:100%"/><small>صفر = نامحدود</small></a-form-model-item>
     <a-form-model-item label="Flow" v-if="!nodeClientEditing && managedNodeInbounds.find(x=>x.remoteId===nodeClientForm.inboundId && x.protocol==='vless')"><a-select v-model="nodeClientForm.flow" allow-clear placeholder="بدون Flow"><a-select-option value="xtls-rprx-vision">xtls-rprx-vision</a-select-option></a-select></a-form-model-item>
-    <a-form-model-item label="اعتبار (روز)" v-if="!nodeClientEditing && !managedNodes.find(n=>Number(n.id)===Number(nodeClientForm.nodeId))?.agentMode"><a-input-number v-model="nodeClientForm.days" :min="0" :max="36500" style="width:100%"/><small>صفر = بدون انقضا</small></a-form-model-item>
-    <a-form-model-item label="روز نسبت به امروز" v-else><a-input-number v-model="nodeClientForm.days" :min="-36500" :max="36500" style="width:100%"/><small>منفی = تاریخ انقضای گذشته؛ صفر = بدون انقضا</small></a-form-model-item>
+    <a-form-model-item label="اعتبار (روز)" v-if="!nodeClientEditing && !selectedManagedNodeIsAgent"><a-input-number v-model="nodeClientForm.days" :min="0" :max="36500" style="width:100%"/><small>صفر = بدون انقضا</small></a-form-model-item>
+    <a-alert v-if="!nodeClientEditing && selectedManagedNodeIsAgent" type="warning" show-icon message="این نود با Agent فعلی فقط کاربر نامحدود و بدون انقضا می‌سازد؛ محدودیت حجم و تاریخ انقضا هنوز پشتیبانی نمی‌شود."/>
+     <a-form-model-item label="روز نسبت به امروز" v-else-if="!selectedManagedNodeIsAgent"><a-input-number v-model="nodeClientForm.days" :min="-36500" :max="36500" style="width:100%"/><small>منفی = تاریخ انقضای گذشته؛ صفر = بدون انقضا</small></a-form-model-item>
     <a-form-model-item label="وضعیت" v-if="nodeClientEditing"><a-switch v-model="nodeClientForm.enable" checked-children="فعال" un-checked-children="خاموش"/></a-form-model-item>
   </a-form-model>
 </a-modal>
@@ -652,6 +653,10 @@
       ],
     },
     computed: {
+      selectedManagedNodeIsAgent() {
+        const node=this.managedNodes.find(n=>Number(n.id)===Number(this.nodeClientForm.nodeId));
+        return !!(node && node.agentMode);
+      },
       // Fixed widths on everything except Serving, which is the one column whose
       // content genuinely varies and so is the one that should absorb the slack.
       // The four fixed ones are deliberately tight: three protocol chips need
@@ -1288,8 +1293,10 @@
             {totalBytes:(f.totalGB===f.originalTotalGB?f.totalBytes:f.totalGB*1073741824),expiryTime,enable:f.enable});
         } else {
           const inboundId=Number(f.inboundId);
-          const totalGB=Number(f.totalGB)||0;
-          const days=Number(f.days)||0;
+          const selectedNode=this.managedNodes.find(n=>Number(n.id)===Number(f.nodeId));
+          const isAgent=!!(selectedNode&&selectedNode.agentMode);
+          const totalGB=isAgent?0:(Number(f.totalGB)||0);
+          const days=isAgent?0:(Number(f.days)||0);
           if (!Number.isSafeInteger(inboundId) || inboundId<1 || !Number.isFinite(totalGB) || totalGB<0 || !Number.isInteger(days) || days<0) {
             this.$message.warning('مقادیر Inbound، حجم و اعتبار نامعتبر است');
             this.nodeClientSaving=false;
