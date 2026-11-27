@@ -261,11 +261,15 @@ func syncNativeAgentNode(n model.Node, now int64, previous map[string]nodeCounte
    LastOnline:client.LastOnline, Online:client.Online,
   }
  }
- next, deltas := nodeSpeedDelta(previous, aggregates, now)
- // The caller supplies a per-node map. Replace its contents atomically after
- // computing deltas so the next poll uses this exact node's cumulative sample.
- for email := range previous { delete(previous, email) }
- for email, sample := range next { previous[email] = sample }
+ var deltas []nodeClientDelta
+ if statsErr == nil {
+  next, calculated := nodeSpeedDelta(previous, aggregates, now)
+  deltas = calculated
+  // The caller supplies a per-node map. Replace its contents after a valid
+  // stats sample so an unavailable StatsService cannot create a false spike.
+  for email := range previous { delete(previous, email) }
+  for email, sample := range next { previous[email] = sample }
+ }
  clientRows:=make([]model.NodeClientSnapshot,0,len(clients))
  for _,client:=range clients { clientRows=append(clientRows,*client) }
  db:=database.GetDB()
