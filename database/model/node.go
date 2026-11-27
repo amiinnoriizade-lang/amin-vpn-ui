@@ -8,6 +8,7 @@ type Node struct {
  Remark string `json:"remark"`
  Scheme string `json:"scheme" gorm:"size:8;not null;default:https"`
  Address string `json:"address" gorm:"size:253;not null"`
+	PublicAddress string `json:"publicAddress" gorm:"size:253"`
  Port int `json:"port" gorm:"not null;default:2053"`
  BasePath string `json:"basePath"`
  ApiToken string `json:"-" gorm:"not null"`
