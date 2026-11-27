@@ -262,16 +262,22 @@ func syncNativeAgentNode(n model.Node, now int64, previous map[string]nodeCounte
   }
  }
  var deltas []nodeClientDelta
+ rates := make(map[string]nodeClientDelta)
  if statsErr == nil {
   next, calculated := nodeSpeedDelta(previous, aggregates, now)
   deltas = calculated
+  for _, rate := range deltas { rates[rate.Email] = rate }
   // The caller supplies a per-node map. Replace its contents after a valid
   // stats sample so an unavailable StatsService cannot create a false spike.
   for email := range previous { delete(previous, email) }
   for email, sample := range next { previous[email] = sample }
  }
  clientRows:=make([]model.NodeClientSnapshot,0,len(clients))
- for _,client:=range clients { clientRows=append(clientRows,*client) }
+ for email,client:=range clients {
+  client.Total = client.Up + client.Down
+  if rate,ok:=rates[email]; ok { client.UpSpeed=rate.Up; client.DownSpeed=rate.Down }
+  clientRows=append(clientRows,*client)
+ }
  db:=database.GetDB()
  err=db.Transaction(func(tx *gorm.DB) error {
   if e:=tx.Where("node_id = ?",n.Id).Delete(&model.NodeInboundSnapshot{}).Error;e!=nil{return e}
