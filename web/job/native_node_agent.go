@@ -35,44 +35,46 @@ type nativeAgentSettings struct {
  Clients []nativeAgentClient `json:"clients"`
 }
 
+// decodeNativeAgentObject accepts both the Agent's standard {success,obj} envelope
+// and direct JSON payloads used by older Agent builds.
+func decodeNativeAgentObject(raw []byte, target any) error {
+	var envelope struct {
+		Success *bool           `json:"success"`
+		Obj     json.RawMessage `json:"obj"`
+		Msg     string          `json:"msg"`
+		Error   string          `json:"error"`
+	}
+	if len(raw) > 0 && raw[0] == '{' {
+		if err := json.Unmarshal(raw, &envelope); err != nil {
+			return fmt.Errorf("decode AMIN Agent response: %w", err)
+		}
+		if envelope.Success != nil {
+			if !*envelope.Success {
+				message := strings.TrimSpace(envelope.Msg)
+				if message == "" { message = strings.TrimSpace(envelope.Error) }
+				if message == "" { message = "Agent returned success=false" }
+				return fmt.Errorf("AMIN Agent API: %s", message)
+			}
+			if len(envelope.Obj) == 0 || string(envelope.Obj) == "null" {
+				return fmt.Errorf("AMIN Agent response has no obj payload")
+			}
+			raw = envelope.Obj
+		}
+	}
+	if err := json.Unmarshal(raw, target); err != nil {
+		return fmt.Errorf("decode AMIN Agent payload: %w", err)
+	}
+	return nil
+}
+
 func NativeAgentListInbounds(ctx context.Context, n model.Node) ([]NativeAgentInbound, error) {
  raw, err := nodeRequestBody(ctx, n, http.MethodGet, "api/v1/inbounds", nil)
  if err != nil {
   return nil, err
  }
 
- // AMIN Agent endpoints use the standard API envelope:
- // {"success":true,"obj":[...]}.
- // Accept the bare array too for compatibility with older Agent builds.
- payload := raw
- var envelope struct {
-  Success bool            `json:"success"`
-  Obj     json.RawMessage `json:"obj"`
-  Msg     string          `json:"msg"`
-  Error   string          `json:"error"`
- }
- if len(raw) > 0 && raw[0] == '{' {
-  if err := json.Unmarshal(raw, &envelope); err != nil {
-   return nil, fmt.Errorf("decode AMIN Agent inbound response envelope: %w", err)
-  }
-  if !envelope.Success {
-   message := strings.TrimSpace(envelope.Msg)
-   if message == "" {
-    message = strings.TrimSpace(envelope.Error)
-   }
-   if message == "" {
-    message = "Agent returned success=false"
-   }
-   return nil, fmt.Errorf("AMIN Agent inbound API: %s", message)
-  }
-  if len(envelope.Obj) == 0 || string(envelope.Obj) == "null" {
-   return nil, fmt.Errorf("AMIN Agent inbound response has no obj array")
-  }
-  payload = envelope.Obj
- }
-
  var inbounds []NativeAgentInbound
- if err := json.Unmarshal(payload, &inbounds); err != nil {
+ if err := decodeNativeAgentObject(raw, &inbounds); err != nil {
   return nil, fmt.Errorf("decode AMIN Agent inbound list: %w", err)
  }
  if inbounds == nil {
@@ -235,15 +237,15 @@ func probeNativeAgentNode(n model.Node) map[string]any {
  // management calls and must not inflate the network-latency figure.
  patch["latency_ms"]=int(time.Since(healthStarted).Milliseconds())
  var h struct { Version string `json:"version"`; UptimeSeconds uint64 `json:"uptimeSeconds"` }
- if err=json.Unmarshal(health,&h);err!=nil { return fail(fmt.Errorf("decode AMIN Agent health: %w",err)) }
+ if err=decodeNativeAgentObject(health,&h);err!=nil { return fail(fmt.Errorf("decode AMIN Agent health: %w",err)) }
  capabilities,err:=nodeRequestBody(ctx,n,http.MethodGet,"api/v1/capabilities",nil)
  if err!=nil { return fail(fmt.Errorf("AMIN Agent capabilities: %w",err)) }
  var caps struct { XrayManagement bool `json:"xrayManagement"` }
- if err=json.Unmarshal(capabilities,&caps);err!=nil { return fail(fmt.Errorf("decode AMIN Agent capabilities: %w",err)) }
+ if err=decodeNativeAgentObject(capabilities,&caps);err!=nil { return fail(fmt.Errorf("decode AMIN Agent capabilities: %w",err)) }
  system,err:=nodeRequestBody(ctx,n,http.MethodGet,"api/v1/system",nil)
  if err!=nil { return fail(fmt.Errorf("AMIN Agent system: %w",err)) }
  var sys struct { UptimeSeconds uint64 `json:"uptimeSeconds"` }
- if err=json.Unmarshal(system,&sys);err!=nil { return fail(fmt.Errorf("decode AMIN Agent system: %w",err)) }
+ if err=decodeNativeAgentObject(system,&sys);err!=nil { return fail(fmt.Errorf("decode AMIN Agent system: %w",err)) }
  patch["status"]="online"
  patch["agent_version"]=h.Version
  patch["uptime_secs"]=sys.UptimeSeconds
