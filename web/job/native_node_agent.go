@@ -275,7 +275,12 @@ func syncNativeAgentNode(n model.Node, now int64, previous map[string]nodeCounte
  clientRows:=make([]model.NodeClientSnapshot,0,len(clients))
  for email,client:=range clients {
   client.Total = client.Up + client.Down
-  if rate,ok:=rates[email]; ok { client.UpSpeed=rate.Up; client.DownSpeed=rate.Down }
+  if rate,ok:=rates[email]; ok {
+   // nodeSpeedDelta returns bytes per configured 5-second sample for the
+   // existing websocket contract; snapshots expose conventional bytes/second.
+   client.UpSpeed=rate.Up*1000/nodeTrafficPollIntervalMs
+   client.DownSpeed=rate.Down*1000/nodeTrafficPollIntervalMs
+  }
   clientRows=append(clientRows,*client)
  }
  db:=database.GetDB()
