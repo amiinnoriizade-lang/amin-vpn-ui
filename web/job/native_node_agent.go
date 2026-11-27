@@ -71,6 +71,7 @@ type NativeAgentUserTraffic struct {
 	Email string `json:"email"`
 	Up int64 `json:"up"`
 	Down int64 `json:"down"`
+	Online bool `json:"online"`
 }
 
 // NativeAgentQueryUserTraffic fetches cumulative Xray StatsService counters.
