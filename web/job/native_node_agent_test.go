@@ -187,3 +187,37 @@ func TestProbeNativeAgentLatencyMeasuresHealthOnly(t *testing.T) {
 		t.Fatalf("unexpected probe requests: %#v", requests)
 	}
 }
+
+func TestNativeAgentInboundHasClientReadsLiveXraySettings(t *testing.T) {
+ const token = "test-node-token-with-sufficient-length"
+ server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+  if r.Method != http.MethodGet || r.URL.Path != "/api/v1/inbounds" {
+   http.Error(w, "unexpected route", http.StatusNotFound)
+   return
+  }
+  if got := r.Header.Get("Authorization"); got != "Bearer "+token {
+   http.Error(w, "unauthorized", http.StatusUnauthorized)
+   return
+  }
+  _, _ = w.Write([]byte(`{"success":true,"obj":[{"tag":"test-inbound","port":10085,"protocol":"vless","settings":{"clients":[{"email":"amin-user-01","id":"00000000-0000-4000-8000-000000000001"}]}}]}`))
+ }))
+ defer server.Close()
+
+ host, portText, err := net.SplitHostPort(strings.TrimPrefix(server.URL, "http://"))
+ if err != nil { t.Fatal(err) }
+ var port int
+ if _, err := fmt.Sscanf(portText, "%d", &port); err != nil { t.Fatal(err) }
+ node := model.Node{Address:host,Port:port,Scheme:"http",ApiToken:token,AgentMode:true,AllowPrivateAddress:true}
+
+ found, err := NativeAgentInboundHasClient(context.Background(), node, "test-inbound", "AMIN-USER-01")
+ if err != nil { t.Fatalf("verify existing client: %v", err) }
+ if !found { t.Fatal("expected client to be found in live Xray settings") }
+
+ found, err = NativeAgentInboundHasClient(context.Background(), node, "test-inbound", "missing-user")
+ if err != nil { t.Fatalf("verify missing client: %v", err) }
+ if found { t.Fatal("unexpectedly found missing client") }
+
+ if _, err = NativeAgentInboundHasClient(context.Background(), node, "missing-inbound", "amin-user-01"); err == nil {
+  t.Fatal("expected missing inbound to be reported")
+ }
+}
