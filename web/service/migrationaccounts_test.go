@@ -738,3 +738,49 @@ func TestMigrationAccountsMigratesDisabledClients(t *testing.T) {
 		t.Errorf("projected enable = %v, want false", got)
 	}
 }
+
+
+// An account created before it is assigned to an inbound is valid state. It
+// must not block migration of legacy clients or cause the migration to rerun.
+func TestMigrationAccountsPreservesUnservedAccounts(t *testing.T) {
+	svc := newAccountsDB(t)
+	unserved := &model.Account{Email: "unserved@example.com", Enable: true}
+	if err := database.GetDB().Create(unserved).Error; err != nil {
+		t.Fatalf("create unserved account: %v", err)
+	}
+	seedInboundWithClients(t, model.VLESS, 44001, []map[string]any{
+		{"id": "3fa85f64-5717-4562-b3fc-2c963f66afa6", "email": "served@example.com", "enable": true},
+	})
+
+	before := snapshotUntouchedTables(t)
+	svc.MigrationAccounts()
+	assertAdditiveOnly(t, before)
+
+	if !svc.AccountsMigrated() {
+		t.Fatal("migration rolled back because an unrelated account has no inbound membership")
+	}
+	accounts := accountsInDB(t)
+	if len(accounts) != 2 {
+		t.Fatalf("accounts = %d, want the existing unserved account plus the migrated client", len(accounts))
+	}
+	foundUnserved := false
+	for _, account := range accounts {
+		if account.Email == "unserved@example.com" {
+			foundUnserved = true
+		}
+	}
+	if !foundUnserved {
+		t.Fatal("migration removed or changed the existing unserved account")
+	}
+	if got := len(membershipsInDB(t)); got != 1 {
+		t.Fatalf("memberships = %d, want exactly the served legacy client's membership", got)
+	}
+
+	needed, _, err := svc.migrationNeeded(database.GetDB())
+	if err != nil {
+		t.Fatalf("migrationNeeded: %v", err)
+	}
+	if needed {
+		t.Fatal("migrationNeeded remains true after all legacy client pairs were migrated")
+	}
+}
