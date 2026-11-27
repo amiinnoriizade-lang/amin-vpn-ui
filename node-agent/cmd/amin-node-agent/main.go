@@ -201,6 +201,7 @@ func main() {
 	}))
 	protected.HandleFunc("/api/v1/inbounds", inboundAPI(manager))
 	protected.HandleFunc("/api/v1/inbounds/", inboundAPI(manager))
+	protected.HandleFunc("/api/v1/stats", inboundAPI(manager))
 	mux.Handle("/api/v1/", auth(token, protected))
 	server := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
 	log.Printf("AMIN Node Agent 0.3.1 listening on %s", addr)
