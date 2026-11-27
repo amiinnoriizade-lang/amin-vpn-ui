@@ -169,7 +169,6 @@ func (s *AccountService) migrationNeeded(db *gorm.DB) (bool, int, error) {
 		return false, 0, err
 	}
 
-	emails := map[string]struct{}{}
 	entries := 0
 	for _, inbound := range inbounds {
 		clients, ok := parseSettingsClients(inbound.Settings)
@@ -181,7 +180,6 @@ func (s *AccountService) migrationNeeded(db *gorm.DB) (bool, int, error) {
 			if accountKey(email) == "" {
 				continue
 			}
-			emails[accountKey(email)] = struct{}{}
 			entries++
 		}
 	}
