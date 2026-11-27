@@ -40,7 +40,7 @@ func TestBuildNativeAgentShareLinkVMessWS(t *testing.T) {
 }
 
 func TestValidNodeHost(t *testing.T) {
- for _,host:=range []string{"203.0.113.10","vpn.example.com","2001:db8::1"} {
+ for _,host:=range []string{"203.0.113.10","vpn.example.com","2001:db8::1","[2001:db8::1]"} {
   if !validNodeHost(host) { t.Errorf("expected valid host %q",host) }
  }
  for _,host:=range []string{"","https://example.com","example.com/path","user@example.com"} {
