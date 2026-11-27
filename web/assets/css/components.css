@@ -199,12 +199,12 @@
 }
 .bo-topbar::after {
   content:""; position:absolute; z-index:-1; inset:0 0 0 auto;
-  width:min(62%,760px);
+  width:min(86%,980px);
   background:url("../img/amin-world-map.svg") no-repeat right center / contain;
-  opacity:.32; pointer-events:none;
+  opacity:.68; pointer-events:none;
 }
 .bo-topbar-inner {
-  position:relative; z-index:1; min-height:62px;
+  position:relative; z-index:1; min-height:76px;
   max-width:1320px; margin:0 auto; padding:10px 24px;
   display:flex; align-items:center; justify-content:space-between;
   gap:var(--gap-sm); flex-wrap:wrap;
