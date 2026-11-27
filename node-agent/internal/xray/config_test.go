@@ -57,6 +57,17 @@ func TestAddClientValidatesUUIDAndDuplicateCredentials(t *testing.T) {
 	if err := m.AddClient("vless-in", map[string]interface{}{"email":"duplicate-id","id":"00000000-0000-4000-8000-000000000001"}); err == nil { t.Fatal("expected duplicate UUID to be rejected") }
 	if err := m.AddClient("vless-in", map[string]interface{}{"email":"bad email","id":"00000000-0000-4000-8000-000000000002"}); err == nil { t.Fatal("expected whitespace in email to be rejected") }
 }
+func TestValidClientEmail(t *testing.T) {
+	if !validClientEmail("missing@example.com") {
+		t.Fatal("valid email was rejected")
+	}
+	for _, email := range []string{"", " leading@example.com", "trailing@example.com ", "line\nbreak@example.com", "tab\t@example.com"} {
+		if validClientEmail(email) {
+			t.Fatalf("invalid email %q was accepted", email)
+		}
+	}
+}
+
 func TestUpdateClientValidatesPatchAndPreservesIdentity(t *testing.T) {
 	m := testManager(t, map[string]interface{}{"inbounds": []interface{}{
 		map[string]interface{}{"tag":"vless-in","protocol":"vless","settings":map[string]interface{}{"clients":[]interface{}{
