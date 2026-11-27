@@ -52,6 +52,38 @@ func NativeAgentCreateClient(ctx context.Context, n model.Node, tag string, clie
  return err
 }
 
+// NativeAgentInboundHasClient confirms that a client is present in the live Xray
+// configuration, rather than trusting only the mutation endpoint's HTTP response.
+func NativeAgentInboundHasClient(ctx context.Context, n model.Node, tag, email string) (bool, error) {
+ tag = strings.TrimSpace(tag)
+ email = strings.ToLower(strings.TrimSpace(email))
+ if tag == "" || email == "" {
+  return false, fmt.Errorf("inbound tag and client email are required")
+ }
+ inbounds, err := NativeAgentListInbounds(ctx, n)
+ if err != nil {
+  return false, fmt.Errorf("verify AMIN Agent client: %w", err)
+ }
+ for _, inbound := range inbounds {
+  if inbound.Tag != tag {
+   continue
+  }
+  var settings nativeAgentSettings
+  if len(inbound.Settings) > 0 {
+   if err := json.Unmarshal(inbound.Settings, &settings); err != nil {
+    return false, fmt.Errorf("decode clients for inbound %s: %w", tag, err)
+   }
+  }
+  for _, client := range settings.Clients {
+   if strings.EqualFold(strings.TrimSpace(client.Email), email) {
+    return true, nil
+   }
+  }
+  return false, nil
+ }
+ return false, fmt.Errorf("inbound %q is no longer present on AMIN Agent", tag)
+}
+
 func NativeAgentDeleteClient(ctx context.Context, n model.Node, tag, email string) error {
  if strings.TrimSpace(tag)=="" || strings.TrimSpace(email)=="" { return fmt.Errorf("inbound tag and client email are required") }
  endpoint := "api/v1/inbounds/" + url.PathEscape(tag) + "/clients?email=" + url.QueryEscape(email)
