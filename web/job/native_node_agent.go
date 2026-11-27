@@ -252,6 +252,17 @@ func syncNativeAgentNode(n model.Node, now int64, previous map[string]nodeCounte
     if sample.Down >= 0 { client.Down = sample.Down }
    }
   }
+ } else {
+  // Preserve the last known cumulative usage if StatsService is temporarily
+  // unavailable; never replace real historical usage with fabricated zeros.
+  var prior []model.NodeClientSnapshot
+  if err := database.GetDB().Where("node_id = ?", n.Id).Find(&prior).Error; err == nil {
+   for _, old := range prior {
+    if client := clients[strings.ToLower(strings.TrimSpace(old.Email))]; client != nil {
+     client.Up, client.Down, client.Total = old.Up, old.Down, old.Total
+    }
+   }
+  }
  }
  aggregates := make(map[string]*nodeClientAggregate, len(clients))
  for email, client := range clients {
