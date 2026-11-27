@@ -75,8 +75,14 @@ func TestUpdateClientValidatesPatchAndPreservesIdentity(t *testing.T) {
 	if err := m.UpdateClient("vless-in", "missing", map[string]interface{}{"flow":"xtls-rprx-vision"}); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected missing client error, got %v", err)
 	}
-	if err := m.UpdateClient("vless-in", "alice", map[string]interface{}{"flow":"xtls-rprx-vision"}); err == nil || !strings.Contains(err.Error(), "Xray rejected config") {
-		t.Fatalf("expected validation to reach Xray config test without changing identity, got %v", err)
+	if err := m.UpdateClient("vless-in", "alice", map[string]interface{}{"flow":"xtls-rprx-vision"}); err == nil {
+		t.Fatal("expected missing Xray binary to prevent applying a client update in this unit test")
+	}
+	inbounds, err := m.ListInbounds()
+	if err != nil { t.Fatal(err) }
+	clients := inbounds[0]["settings"].(map[string]interface{})["clients"].([]interface{})
+	if clients[0].(map[string]interface{})["id"] != "00000000-0000-4000-8000-000000000001" {
+		t.Fatal("failed update changed the original client credential")
 	}
 }
 
