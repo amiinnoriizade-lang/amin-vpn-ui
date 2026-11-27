@@ -423,7 +423,7 @@ type nodeClientMutation struct {
  Enable bool `json:"enable"`
  ID string `json:"id"`
  Password string `json:"password"`
- Flow string `json:"flow"`
+ Flow *string `json:"flow"`
  Security string `json:"security"`
  Level *int `json:"level"`
  AlterID *int `json:"alterId"`
@@ -489,7 +489,7 @@ func (a *NodeController) updateNodeClient(c *gin.Context) {
   patch:=map[string]any{}
   if strings.TrimSpace(req.ID)!="" { patch["id"]=strings.TrimSpace(req.ID) }
   if strings.TrimSpace(req.Password)!="" { patch["password"]=strings.TrimSpace(req.Password) }
-  if req.Flow!="" { patch["flow"]=req.Flow }
+  if req.Flow!=nil { patch["flow"]=*req.Flow }
   if req.Security!="" { patch["security"]=req.Security }
   if req.Level!=nil { patch["level"]=*req.Level }
   if req.AlterID!=nil { patch["alterId"]=*req.AlterID }
