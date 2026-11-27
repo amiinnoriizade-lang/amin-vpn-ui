@@ -39,7 +39,11 @@ func TestQueryUserTrafficParsesOnlyUserTrafficCounters(t *testing.T) {
 
 	binary := filepath.Join(dir, "xray")
 	script := `#!/bin/sh
-printf '%s\n' '{"stat":[{"name":"user>>>alice@example.com>>>traffic>>>uplink","value":"1234"},{"name":"user>>>alice@example.com>>>traffic>>>downlink","value":"5678"},{"name":"inbound>>>api>>>traffic>>>uplink","value":"99"},{"name":"user>>>alice@example.com>>>online","value":"1"}]}'
+if [ "$2" = "statsonlineiplist" ]; then
+  printf '%s\n' '{"users":[{"email":"alice@example.com","ips":[{"ip":"192.0.2.10","lastSeen":1700000000}]}]}'
+else
+  printf '%s\n' '{"stat":[{"name":"user>>>alice@example.com>>>traffic>>>uplink","value":"1234"},{"name":"user>>>alice@example.com>>>traffic>>>downlink","value":"5678"},{"name":"inbound>>>api>>>traffic>>>uplink","value":"99"}]}'
+fi
 `
 	if err := os.WriteFile(binary, []byte(script), 0700); err != nil { t.Fatal(err) }
 	m := &ConfigManager{Path:configPath, XrayBinary:binary}
