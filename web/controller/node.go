@@ -9,6 +9,7 @@ import (
  "encoding/base64"
  "fmt"
  "context"
+ "crypto/ecdh"
 
 
  "github.com/google/uuid"
@@ -580,6 +581,37 @@ func nativeString(m map[string]any,key string) string {
  return v
 }
 
+func nativeFirstString(value any) string {
+ switch values:=value.(type) {
+ case []any:
+  for _,item:=range values {
+   if candidate,ok:=item.(string);ok && strings.TrimSpace(candidate)!="" { return strings.TrimSpace(candidate) }
+  }
+ case []string:
+  for _,candidate:=range values { if strings.TrimSpace(candidate)!="" { return strings.TrimSpace(candidate) } }
+ }
+ return ""
+}
+
+// realityPublicKey derives the client-facing X25519 public key from the
+// privateKey stored in a normal Xray server-side Reality configuration.
+// Xray encodes Reality keys using unpadded URL-safe base64.
+func realityPublicKey(privateKey string) (string,error) {
+ privateKey=strings.TrimSpace(privateKey)
+ if privateKey=="" { return "",fmt.Errorf("Reality privateKey در تنظیمات زنده Xray وجود ندارد") }
+ var keyBytes []byte
+ var err error
+ for _,encoding:=range []*base64.Encoding{base64.RawURLEncoding,base64.URLEncoding,base64.RawStdEncoding,base64.StdEncoding} {
+  keyBytes,err=encoding.DecodeString(privateKey)
+  if err==nil { break }
+ }
+ if err!=nil { return "",fmt.Errorf("Reality privateKey قالب Base64 معتبر ندارد: %w",err) }
+ if len(keyBytes)!=32 { return "",fmt.Errorf("طول Reality privateKey نامعتبر است؛ انتظار ۳۲ بایت می‌رفت و %d بایت دریافت شد",len(keyBytes)) }
+ private,err:=ecdh.X25519().NewPrivateKey(keyBytes)
+ if err!=nil { return "",fmt.Errorf("ساخت کلید X25519 از Reality privateKey ناموفق بود: %w",err) }
+ return base64.RawURLEncoding.EncodeToString(private.PublicKey().Bytes()),nil
+}
+
 // buildNativeAgentShareLink builds a client URI from the live Xray config.
 // The management address is deliberately never used: Agent nodes have a separate
 // public endpoint because their control API commonly runs behind a loopback tunnel.
@@ -609,8 +641,23 @@ func buildNativeAgentShareLink(publicHost,nodeName string,ib job.NativeAgentInbo
   if alpn,ok:=cfg["alpn"].([]any);ok && len(alpn)>0 { vals:=make([]string,0,len(alpn)); for _,v:=range alpn { vals=append(vals,fmt.Sprint(v)) }; q.Set("alpn",strings.Join(vals,",")) }
   if security=="reality" {
    settings,_:=cfg["settings"].(map[string]any)
-   for source,target:=range map[string]string{"publicKey":"pbk","shortId":"sid","spiderX":"spx"} { if value:=nativeString(settings,source); value!="" { q.Set(target,value) } }
-   if q.Get("pbk")=="" { return "","","",fmt.Errorf("Public Key مربوط به Reality در تنظیمات زنده پیدا نشد") }
+   // Reality server configs normally contain privateKey/serverNames/shortIds;
+   // client share links require the derived public key and one advertised SNI/shortId.
+   publicKey:=nativeString(settings,"publicKey")
+   if publicKey=="" {
+    var deriveErr error
+    publicKey,deriveErr=realityPublicKey(nativeString(cfg,"privateKey"))
+    if deriveErr!=nil { return "","","",deriveErr }
+   }
+   q.Set("pbk",publicKey)
+   if sni:=nativeString(settings,"serverName"); sni!="" { q.Set("sni",sni) } else if sni:=nativeFirstString(cfg["serverNames"]); sni!="" { q.Set("sni",sni) }
+   if fp:=nativeString(settings,"fingerprint"); fp!="" { q.Set("fp",fp) }
+   shortID:=nativeString(settings,"shortId")
+   if shortID=="" { shortID=nativeFirstString(cfg["shortIds"]) }
+   if shortID!="" { q.Set("sid",shortID) }
+   if spiderX:=nativeString(settings,"spiderX"); spiderX!="" { q.Set("spx",spiderX) }
+   if q.Get("sni")=="" { return "","","",fmt.Errorf("هیچ serverName معتبری در Reality تنظیم نشده است") }
+   if q.Get("sid")=="" { return "","","",fmt.Errorf("هیچ shortId معتبری در Reality تنظیم نشده است") }
   }
  }
  switch network {
