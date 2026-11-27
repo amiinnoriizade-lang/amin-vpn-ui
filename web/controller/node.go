@@ -74,7 +74,10 @@ func nodeDB() *gorm.DB { return database.GetDB() }
 func validNodeHost(host string) bool {
  host=strings.TrimSpace(host)
  if host=="" || strings.ContainsAny(host,"/?#@") { return false }
+ if strings.HasPrefix(host,"[") && strings.HasSuffix(host,"]") { host=host[1:len(host)-1] }
  if net.ParseIP(host)!=nil { return true }
+ // Public endpoint is a host only; the listener port comes from the inbound.
+ if strings.Contains(host,":") { return false }
  u,err:=url.Parse("https://"+host)
  return err==nil && u.Hostname()!="" && u.User==nil && u.Path==""
 }
@@ -244,7 +247,7 @@ func (a *NodeController) createClient(c *gin.Context) {
 
  if n.AgentMode {
   if req.TotalGB!=0 || req.Months!=0 || req.Days!=0 {
-   c.JSON(http.StatusNotImplemented,gin.H{"success":false,"msg":"AMIN Node Agent 0.2.1 does not yet enforce traffic quotas or expiry; use unlimited volume and no expiry"}); return
+   c.JSON(http.StatusNotImplemented,gin.H{"success":false,"msg":"AMIN Node Agent currently does not enforce traffic quotas or expiry; use unlimited volume and no expiry"}); return
   }
   ctx,cancel:=context.WithTimeout(c.Request.Context(),25*time.Second); defer cancel()
   liveInbounds,liveErr:=job.NativeAgentListInbounds(ctx,n)
@@ -467,7 +470,7 @@ func validRemoteEmail(email string) bool {
 
 func (a *NodeController) updateNodeClient(c *gin.Context) {
  n,ok:=a.loadManageableNode(c); if !ok { return }
- if n.AgentMode { c.JSON(http.StatusNotImplemented,gin.H{"success":false,"msg":"client update is not yet supported by AMIN Node Agent 0.2.1"}); return }
+ if n.AgentMode { c.JSON(http.StatusNotImplemented,gin.H{"success":false,"msg":"client update is not yet supported by the current AMIN Node Agent API"}); return }
  email:=strings.ToLower(strings.TrimSpace(c.Param("email")))
  if !validRemoteEmail(email) { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid username"}); return }
  var exists model.NodeClientSnapshot
@@ -622,7 +625,8 @@ func buildNativeAgentShareLink(publicHost,nodeName string,ib job.NativeAgentInbo
  if credential=="" { return "","","",fmt.Errorf("شناسه یا رمز واقعی کاربر در تنظیمات Xray وجود ندارد") }
  if ib.Port<1 || ib.Port>65535 { return "","","",fmt.Errorf("پورت Inbound نامعتبر است") }
  host:=strings.TrimSpace(publicHost)
- if net.ParseIP(host)==nil && strings.Contains(host,":") { return "","","",fmt.Errorf("آدرس عمومی اتصال نامعتبر است") }
+ if strings.HasPrefix(host,"[") && strings.HasSuffix(host,"]") { host=host[1:len(host)-1] }
+ if !validNodeHost(host) { return "","","",fmt.Errorf("آدرس عمومی اتصال نامعتبر است") }
  stream:=map[string]any{}
  if len(ib.StreamSettings)>0 { if err:=json.Unmarshal(ib.StreamSettings,&stream); err!=nil { return "","","",fmt.Errorf("خواندن StreamSettings ناموفق بود: %w",err) } }
  network:=nativeString(stream,"network"); if network=="" { network="tcp" }
