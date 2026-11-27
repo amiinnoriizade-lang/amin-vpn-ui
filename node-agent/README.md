@@ -1,6 +1,6 @@
 # AMIN Node Agent
 
-The standalone Go agent provides authenticated local control of an Xray node. Current Agent version: `0.3.1`. It binds to loopback by default and does not require Sanaei.
+The standalone Go agent provides authenticated local control of an Xray node. Current Agent version: `0.3.2`. It binds to loopback by default and does not require Sanaei.
 
 ## Build and test
 
