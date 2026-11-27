@@ -17,6 +17,7 @@ type UserTraffic struct {
 	Email string `json:"email"`
 	Up    int64  `json:"up"`
 	Down  int64  `json:"down"`
+	Online bool `json:"online"`
 }
 
 type statsQueryResponse struct {
@@ -105,17 +106,24 @@ func (m *ConfigManager) QueryUserTraffic(ctx context.Context) ([]UserTraffic, er
 	byEmail := make(map[string]*UserTraffic)
 	for _, stat := range response.Stat {
 		parts := strings.Split(stat.Name, ">>>")
-		if len(parts) != 4 || parts[0] != "user" || parts[2] != "traffic" || parts[1] == "" {
+		if len(parts) < 3 || parts[0] != "user" || parts[1] == "" {
 			continue
-		}
-		value, err := strconv.ParseInt(stat.Value.String(), 10, 64)
-		if err != nil || value < 0 {
-			return nil, fmt.Errorf("Xray returned an invalid traffic counter for %q", stat.Name)
 		}
 		item := byEmail[strings.ToLower(parts[1])]
 		if item == nil {
 			item = &UserTraffic{Email: strings.ToLower(parts[1])}
 			byEmail[item.Email] = item
+		}
+		value, err := strconv.ParseInt(stat.Value.String(), 10, 64)
+		if err != nil || value < 0 {
+			return nil, fmt.Errorf("Xray returned an invalid traffic counter for %q", stat.Name)
+		}
+		if len(parts) == 3 && parts[2] == "online" {
+			item.Online = value > 0
+			continue
+		}
+		if len(parts) != 4 || parts[2] != "traffic" {
+			continue
 		}
 		switch parts[3] {
 		case "uplink":
