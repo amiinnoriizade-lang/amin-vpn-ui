@@ -84,10 +84,12 @@
             <a-tag :color="cl.enable ? 'green' : 'red'">[[ cl.enable ? 'فعال' : 'غیرفعال' ]]</a-tag>
           </template>
           <template slot="clientActions" slot-scope="text,cl">
-            <a-popconfirm title="این کاربر از تمام Inboundهای نود حذف شود؟" ok-text="حذف" cancel-text="انصراف" @confirm="deleteNodeClient(cl)">
+            <a-space>
               <a-button v-if="selectedNode && selectedNode.agentMode" size="small" icon="edit" @click="editNodeClient(cl)">ویرایش</a-button>
-              <a-button size="small" type="danger" icon="delete">حذف</a-button>
-            </a-popconfirm>
+              <a-popconfirm title="این کاربر از تمام Inboundهای نود حذف شود؟" ok-text="حذف" cancel-text="انصراف" @confirm="deleteNodeClient(cl)">
+                <a-button size="small" type="danger" icon="delete">حذف</a-button>
+              </a-popconfirm>
+            </a-space>
           </template>
         </a-table>
       </a-card>
