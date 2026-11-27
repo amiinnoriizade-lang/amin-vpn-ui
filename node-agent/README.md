@@ -1,6 +1,6 @@
 # AMIN Node Agent
 
-The standalone Go agent provides authenticated local control of an Xray node. Current Agent version: `0.2.2`. It binds to loopback by default and does not require Sanaei.
+The standalone Go agent provides authenticated local control of an Xray node. Current Agent version: `0.3.0`. It binds to loopback by default and does not require Sanaei.
 
 ## Build and test
 
@@ -67,12 +67,15 @@ Example create request (the settings and stream settings are Xray-native objects
 ### Clients
 
 - `POST /api/v1/inbounds/{tag}/clients`
+- `PUT /api/v1/inbounds/{tag}/clients?email={email}`
 - `DELETE /api/v1/inbounds/{tag}/clients?email={email}`
 
-Client JSON accepts only `email`, `id`, `level`, `flow`, `alterId`, `security`, and `password`. VLESS/VMess require a syntactically valid UUID in `id`; Trojan and Shadowsocks require a non-empty `password`. Client identity credentials (`id` or `password`) and email must be unique within the inbound. String/numeric field types and whitespace in email are validated before any config write. Shadowsocks cipher selection belongs to the inbound's Xray settings, not an individual client.
+Create requests accept only `email`, `id`, `level`, `flow`, `alterId`, `security`, and `password`. VLESS/VMess require a syntactically valid UUID in `id`; Trojan and Shadowsocks require a non-empty `password`. Client identity credentials (`id` or `password`) and email must be unique within the inbound. String/numeric field types and whitespace in email are validated before any config write. Shadowsocks cipher selection belongs to the inbound's Xray settings, not an individual client.
+
+Update requests use `PUT` with a JSON patch containing one or more of `id`, `password`, `level`, `flow`, `alterId`, or `security`. The email is supplied in the query string and cannot be changed by the patch. Unspecified client fields are preserved. The replacement credential is checked for protocol validity and duplicates before Xray config validation. Traffic quota, expiry enforcement, and enable/disable controls are not implemented by this Agent API.
 
 ## Safety behavior
 
 Before a mutation, the agent writes a staged JSON file and runs `xray run -test -config <staged-file>`. If validation succeeds, it creates a timestamped backup, atomically replaces the configured file, and restarts the configured systemd service. If restart fails, it restores the previous config and attempts to restart the service again. Backups are retained for operator-controlled cleanup.
 
-The current implementation manages inbound definitions and basic client records only. It does not yet implement node enrollment/rotation, URI/QR generation, traffic accounting, or AMIN-UI Core integration. Do not treat it as a production-ready remote control plane until those milestones and a full integration test are complete.
+The Agent now supports authenticated inbound CRUD and client create/update/delete operations. It still does not implement node enrollment/rotation, URI/QR generation, traffic accounting, quota/expiry enforcement, enable/disable controls, or AMIN-UI Core integration. Do not treat it as a production-ready remote control plane until those milestones and a full integration test are complete.
