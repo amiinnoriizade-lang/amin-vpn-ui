@@ -33,6 +33,7 @@ type nodeMutation struct {
  Remark string `form:"remark" json:"remark"`
  Scheme string `form:"scheme" json:"scheme"`
  Address string `form:"address" json:"address"`
+ PublicAddress string `form:"publicAddress" json:"publicAddress"`
  Port int `form:"port" json:"port"`
  BasePath string `form:"basePath" json:"basePath"`
  ApiToken string `form:"apiToken" json:"apiToken"`
@@ -69,9 +70,18 @@ func NewNodeController(g *gin.RouterGroup) *NodeController {
 
 func nodeDB() *gorm.DB { return database.GetDB() }
 
+func validNodeHost(host string) bool {
+ host=strings.TrimSpace(host)
+ if host=="" || strings.ContainsAny(host,"/?#@") { return false }
+ if net.ParseIP(host)!=nil { return true }
+ u,err:=url.Parse("https://"+host)
+ return err==nil && u.Hostname()!="" && u.User==nil && u.Path==""
+}
+
 func validNodeMutation(v nodeMutation, creating bool) string {
  if strings.TrimSpace(v.Name)=="" { return "name is required" }
  if strings.TrimSpace(v.Address)=="" { return "address is required" }
+ if v.PublicAddress!="" && !validNodeHost(v.PublicAddress) { return "publicAddress must be a hostname or IP without a URL path" }
  if v.Scheme=="" { v.Scheme="https" }
  if v.Scheme!="http" && v.Scheme!="https" { return "scheme must be http or https" }
  if v.Port<1 || v.Port>65535 { return "port must be between 1 and 65535" }
@@ -100,7 +110,7 @@ func (a *NodeController) get(c *gin.Context) {
 }
 func nodeFromMutation(v nodeMutation, old model.Node) model.Node {
  old.Name=strings.TrimSpace(v.Name); old.Remark=v.Remark; old.AgentMode=v.AgentMode; old.Scheme=v.Scheme; if old.Scheme=="" {old.Scheme="https"}
- old.Address=strings.TrimSpace(v.Address); old.Port=v.Port; old.BasePath=strings.TrimSpace(v.BasePath)
+ old.Address=strings.TrimSpace(v.Address); old.PublicAddress=strings.TrimSpace(v.PublicAddress); old.Port=v.Port; old.BasePath=strings.TrimSpace(v.BasePath)
  if v.ApiToken!="" {old.ApiToken=v.ApiToken}
  if v.Enable!=nil {old.Enable=*v.Enable} else if old.Id==0 {old.Enable=true}
  old.AllowPrivateAddress=v.AllowPrivateAddress; old.TlsVerifyMode=v.TlsVerifyMode; if old.TlsVerifyMode=="" {old.TlsVerifyMode="system"}
@@ -562,12 +572,106 @@ func decodeNodeRemoteInbounds(raw []byte) ([]map[string]any, error) {
  return nil, fmt.Errorf("inbound array not found in API response")
 }
 
+
+func nativeString(m map[string]any,key string) string {
+ v:=strings.TrimSpace(fmt.Sprint(m[key]))
+ if v=="<nil>" { return "" }
+ return v
+}
+
+// buildNativeAgentShareLink builds a client URI from the live Xray config.
+// The management address is deliberately never used: Agent nodes have a separate
+// public endpoint because their control API commonly runs behind a loopback tunnel.
+func buildNativeAgentShareLink(publicHost,nodeName string,ib job.NativeAgentInbound,client map[string]any,email string)(string,string,string,error) {
+ protocol:=strings.ToLower(strings.TrimSpace(ib.Protocol))
+ credential:=nativeString(client,"id")
+ if credential=="" { credential=nativeString(client,"password") }
+ if credential=="" { return "","","",fmt.Errorf("شناسه یا رمز واقعی کاربر در تنظیمات Xray وجود ندارد") }
+ if ib.Port<1 || ib.Port>65535 { return "","","",fmt.Errorf("پورت Inbound نامعتبر است") }
+ host:=strings.TrimSpace(publicHost)
+ if net.ParseIP(host)==nil && strings.Contains(host,":") { return "","","",fmt.Errorf("آدرس عمومی اتصال نامعتبر است") }
+ stream:=map[string]any{}
+ if len(ib.StreamSettings)>0 { if err:=json.Unmarshal(ib.StreamSettings,&stream); err!=nil { return "","","",fmt.Errorf("خواندن StreamSettings ناموفق بود: %w",err) } }
+ network:=nativeString(stream,"network"); if network=="" { network="tcp" }
+ security:=nativeString(stream,"security"); if security=="" { security="none" }
+ q:=url.Values{"type":{network},"security":{security}}
+ if protocol=="vless" {
+  q.Set("encryption","none")
+  if flow:=nativeString(client,"flow"); flow!="" { q.Set("flow",flow) }
+ }
+ if security=="tls" || security=="reality" {
+  key:="tlsSettings"; if security=="reality" { key="realitySettings" }
+  cfg,_:=stream[key].(map[string]any)
+  for source,target:=range map[string]string{"serverName":"sni","fingerprint":"fp"} {
+   if value:=nativeString(cfg,source); value!="" { q.Set(target,value) }
+  }
+  if alpn,ok:=cfg["alpn"].([]any);ok && len(alpn)>0 { vals:=make([]string,0,len(alpn)); for _,v:=range alpn { vals=append(vals,fmt.Sprint(v)) }; q.Set("alpn",strings.Join(vals,",")) }
+  if security=="reality" {
+   settings,_:=cfg["settings"].(map[string]any)
+   for source,target:=range map[string]string{"publicKey":"pbk","shortId":"sid","spiderX":"spx"} { if value:=nativeString(settings,source); value!="" { q.Set(target,value) } }
+   if q.Get("pbk")=="" { return "","","",fmt.Errorf("Public Key مربوط به Reality در تنظیمات زنده پیدا نشد") }
+  }
+ }
+ switch network {
+ case "ws":
+  cfg,_:=stream["wsSettings"].(map[string]any)
+  if p:=nativeString(cfg,"path");p!="" { q.Set("path",p) }
+  headers,_:=cfg["headers"].(map[string]any); if h:=nativeString(headers,"Host");h!="" { q.Set("host",h) }
+ case "grpc":
+  cfg,_:=stream["grpcSettings"].(map[string]any)
+  if v:=nativeString(cfg,"serviceName");v!="" { q.Set("serviceName",v) }
+  if v:=nativeString(cfg,"authority");v!="" { q.Set("authority",v) }
+ case "httpupgrade":
+  cfg,_:=stream["httpupgradeSettings"].(map[string]any)
+  if v:=nativeString(cfg,"path");v!="" { q.Set("path",v) }
+  if v:=nativeString(cfg,"host");v!="" { q.Set("host",v) }
+ }
+ remark:=strings.TrimSpace(ib.Tag); if remark=="" { remark=nodeName }
+ label:=url.QueryEscape(remark+"-"+email)
+ switch protocol {
+ case "vless","trojan":
+  return fmt.Sprintf("%s://%s@%s?%s#%s",protocol,url.QueryEscape(credential),net.JoinHostPort(host,strconv.Itoa(ib.Port)),q.Encode(),label),protocol,remark,nil
+ case "vmess":
+  tlsValue:=""; if security=="tls" { tlsValue="tls" }
+  wsPath,wsHost:=q.Get("path"),q.Get("host")
+  payload:=map[string]any{"v":"2","ps":remark+"-"+email,"add":host,"port":strconv.Itoa(ib.Port),"id":credential,"aid":fmt.Sprint(client["alterId"]),"scy":"auto","net":network,"type":"none","host":wsHost,"path":wsPath,"tls":tlsValue,"sni":q.Get("sni")}
+  raw,err:=json.Marshal(payload); if err!=nil { return "","","",err }
+  return "vmess://"+base64.RawStdEncoding.EncodeToString(raw),protocol,remark,nil
+ default:
+  return "","","",fmt.Errorf("تولید لینک برای پروتکل %s پشتیبانی نشده است",protocol)
+ }
+}
+
 // nodeClientConfig fetches live Sanaei credentials and builds a share URI without
 // persisting UUIDs/passwords in the local database.
 func (a *NodeController) nodeClientConfig(c *gin.Context) {
  n, ok := a.loadManageableNode(c)
  if !ok { return }
- if n.AgentMode { c.JSON(http.StatusNotImplemented,gin.H{"success":false,"msg":"connection URI generation is not yet implemented for AMIN Node Agent nodes"}); return }
+ if n.AgentMode {
+  email:=strings.ToLower(strings.TrimSpace(c.Param("email")))
+  if !validRemoteEmail(email) { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid username"}); return }
+  if strings.TrimSpace(n.PublicAddress)=="" {
+   c.JSON(http.StatusPreconditionFailed,gin.H{"success":false,"msg":"برای تولید کانفیگ، آدرس عمومی سرور را در ویرایش نود و فیلد «آدرس عمومی اتصال» وارد کنید؛ آدرس 127.0.0.1:18787 فقط تونل مدیریتی است و نباید داخل کانفیگ کاربر قرار بگیرد."}); return
+  }
+  ctx,cancel:=context.WithTimeout(c.Request.Context(),15*time.Second); defer cancel()
+  inbounds,err:=job.NativeAgentListInbounds(ctx,n)
+  if err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"دریافت Inboundهای زنده Agent ناموفق بود: "+err.Error()}); return }
+  for _,ib:=range inbounds {
+   var settings struct { Clients []map[string]any `json:"clients"` }
+   if len(ib.Settings)>0 {
+    if err=json.Unmarshal(ib.Settings,&settings); err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"ساختار تنظیمات Inbound نامعتبر است: "+err.Error()}); return }
+   }
+   for _,client:=range settings.Clients {
+    if !strings.EqualFold(strings.TrimSpace(fmt.Sprint(client["email"])),email) { continue }
+    link,protocol,remark,linkErr:=buildNativeAgentShareLink(n.PublicAddress,n.Name,ib,client,email)
+    if linkErr!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":linkErr.Error()}); return }
+    c.JSON(http.StatusOK,gin.H{"success":true,"obj":gin.H{"email":email,"nodeName":n.Name,"inbound":remark,"protocol":protocol,"port":ib.Port,"link":link}})
+    return
+   }
+  }
+  c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"کاربر در هیچ‌یک از Inboundهای زنده Agent پیدا نشد؛ ابتدا فهرست نود را بروزرسانی کنید."})
+  return
+ }
  email := strings.ToLower(strings.TrimSpace(c.Param("email")))
  if !validRemoteEmail(email) { c.JSON(http.StatusBadRequest, gin.H{"success":false,"msg":"invalid username"}); return }
  var snapshot model.NodeClientSnapshot
