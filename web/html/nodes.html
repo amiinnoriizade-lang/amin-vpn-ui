@@ -62,12 +62,13 @@
       <a-card :title="'Inboundهای نود: '+selectedNode.name">
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
           <a-button icon="reload" :loading="snapshotLoading" @click="showNode(selectedNode)">بروزرسانی Inboundها</a-button>
+          <a-button v-if="selectedNode.agentMode" type="primary" icon="user-add" @click="openCreateClient(null)">ساخت کاربر با پورت دلخواه</a-button>
           <a-tag color="blue">[[ (nodeSnapshot.inbounds || []).length ]] Inbound</a-tag>
           <a-tag color="green">[[ (nodeSnapshot.clients || []).length ]] کاربر</a-tag>
         </div>
         <a-alert v-if="selectedNode.agentMode" type="info" show-icon
-          message="محدودیت نسخه فعلی Agent"
-          description="در نسخه 0.2.1 ساخت و حذف کاربر فعال است؛ محدودیت حجم، تاریخ انقضا، ویرایش کاربر و ساخت لینک اتصال هنوز پشتیبانی نمی‌شوند." style="margin-bottom:12px"/>
+          message="قابلیت‌ها و محدودیت‌های Agent"
+          description="ساخت و حذف کاربر و تولید لینک اتصال پشتیبانی می‌شود. برای دریافت لینک، آدرس عمومی اتصال را در تنظیمات نود وارد کنید. محدودیت حجم، تاریخ انقضا و ویرایش کاربر هنوز در API Agent پیاده‌سازی نشده‌اند." style="margin-bottom:12px"/>
         <a-table :columns="inboundColumns" :data-source="nodeSnapshot.inbounds || []" :row-key="r => r.id" :pagination="false" :scroll="{x:700}" size="small">
           <template slot="inboundTag" slot-scope="text,ib">
             <div style="font-weight:700">[[ ib.tag || ib.remoteTag || ib.remark ]]</div>
@@ -258,7 +259,7 @@ const app = new Vue({
   },
   async showNode(n){this.selectedNode=n;this.nodeSnapshot={inbounds:[],clients:[]};this.snapshotLoading=true;const r=await HttpUtil.get('/panel/api/nodes/snapshot/'+n.id);this.snapshotLoading=false;if(r&&r.success)this.nodeSnapshot=r.obj||{inbounds:[],clients:[]};else this.$message.warning((r&&r.msg)||'دریافت Inboundها ناموفق بود');},
   inboundDisplay(ib){return (ib.tag||ib.remoteTag||ib.remark||'Inbound')+' · '+String(ib.protocol||'').toUpperCase()+' · '+ib.port;},
-  openCreateClient(ib){this.clientError='';this.clientForm={mode:'existing',inboundId:ib.remoteId,port:2053,email:'',flow:'',protocol:(ib.protocol||'').toLowerCase()};this.clientModalVisible=true;},
+  openCreateClient(ib){this.clientError='';const isNew=!ib&&!!(this.selectedNode&&this.selectedNode.agentMode);this.clientForm={mode:isNew?'new':'existing',inboundId:ib?ib.remoteId:null,port:2053,email:'',flow:'',protocol:ib?String(ib.protocol||'').toLowerCase():'vless'};this.clientModalVisible=true;},
   onClientInboundChange(id){const ib=this.selectableInbounds.find(x=>Number(x.remoteId)===Number(id));this.clientForm.protocol=ib?String(ib.protocol||'').toLowerCase():'';this.clientForm.flow='';this.clientError='';},
   responseMessage(value){const data=value&&value.response&&value.response.data?value.response.data:value;return (data&&(data.msg||data.message||data.error))||(value&&value.message)||'خطای نامشخص هنگام ساخت کاربر';},
   async createNodeClient(){
