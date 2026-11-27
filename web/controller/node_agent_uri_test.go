@@ -1,6 +1,7 @@
 package controller
 
 import (
+ "encoding/base64"
  "encoding/json"
  "strings"
  "testing"
@@ -46,3 +47,34 @@ func TestValidNodeHost(t *testing.T) {
   if validNodeHost(host) { t.Errorf("expected invalid host %q",host) }
  }
 }
+
+func TestBuildNativeAgentShareLinkDerivesRealityPublicKeyFromPrivateKey(t *testing.T) {
+ privateBytes:=make([]byte,32)
+ for i:=range privateBytes { privateBytes[i]=byte(i+1) }
+ privateKey:=base64.RawURLEncoding.EncodeToString(privateBytes)
+ settings:=map[string]any{
+  "network":"tcp","security":"reality",
+  "realitySettings":map[string]any{
+   "privateKey":privateKey,
+   "serverNames":[]any{"www.example.com","example.com"},
+   "shortIds":[]any{"a1b2c3d4","11223344"},
+   "fingerprint":"chrome",
+  },
+ }
+ raw,err:=json.Marshal(settings); if err!=nil { t.Fatal(err) }
+ ib:=job.NativeAgentInbound{Tag:"reality-derived",Port:443,Protocol:"vless",StreamSettings:raw}
+ link,protocol,_,err:=buildNativeAgentShareLink("203.0.113.10","test",ib,map[string]any{"email":"alice","id":"11111111-1111-4111-8111-111111111111"},"alice")
+ if err!=nil { t.Fatal(err) }
+ expected,err:=realityPublicKey(privateKey); if err!=nil { t.Fatal(err) }
+ for _,part:=range []string{"security=reality","pbk="+expected,"sni=www.example.com","sid=a1b2c3d4","fp=chrome"} {
+  if !strings.Contains(link,part) { t.Fatalf("link missing %q: %s",part,link) }
+ }
+ if protocol!="vless" { t.Fatalf("protocol=%s",protocol) }
+}
+
+func TestRealityPublicKeyRejectsInvalidPrivateKey(t *testing.T) {
+ for _,key:=range []string{"","not-base64","AQID"} {
+  if _,err:=realityPublicKey(key); err==nil { t.Errorf("expected invalid private key error for %q",key) }
+ }
+}
+
