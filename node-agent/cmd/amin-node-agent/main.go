@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/subtle"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -103,6 +104,12 @@ func inboundAPI(manager *xray.ConfigManager) http.HandlerFunc {
 			if err := decodeBody(w, r, &in); err != nil { writeError(w, err); return }
 			if err := manager.AddInbound(in); err != nil { writeError(w, err); return }
 			writeJSON(w, http.StatusCreated, envelope{Success: true, Msg: "inbound created"})
+		case r.URL.Path == "/api/v1/stats" && r.Method == http.MethodGet:
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			defer cancel()
+			stats, err := manager.QueryUserTraffic(ctx)
+			if err != nil { writeError(w, err); return }
+			writeJSON(w, http.StatusOK, envelope{Success: true, Obj: stats})
 		default:
 			rest := strings.TrimPrefix(r.URL.Path, "/api/v1/inbounds/")
 			parts := strings.Split(rest, "/")
@@ -174,7 +181,10 @@ func main() {
 	protected := http.NewServeMux()
 	protected.HandleFunc("/api/v1/capabilities", method(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 		features := []string{"health", "system", "capabilities"}
-		if manager != nil { features = append(features, "inbounds.list", "inbounds.create", "inbounds.delete", "clients.create", "clients.update", "clients.delete") }
+		if manager != nil {
+			features = append(features, "inbounds.list", "inbounds.create", "inbounds.delete", "clients.create", "clients.update", "clients.delete")
+			if _, err := manager.StatsAPIAddress(); err == nil { features = append(features, "clients.stats") }
+		}
 		writeJSON(w, http.StatusOK, envelope{Success: true, Obj: map[string]interface{}{
 			"agentVersion": "0.3.0", "xrayManagement": manager != nil, "features": features,
 			"protocols": []string{"vless", "vmess", "trojan", "shadowsocks"},
