@@ -60,22 +60,22 @@ func TestAddClientValidatesUUIDAndDuplicateCredentials(t *testing.T) {
 func TestUpdateClientValidatesPatchAndPreservesIdentity(t *testing.T) {
 	m := testManager(t, map[string]interface{}{"inbounds": []interface{}{
 		map[string]interface{}{"tag":"vless-in","protocol":"vless","settings":map[string]interface{}{"clients":[]interface{}{
-			map[string]interface{}{"email":"alice","id":"00000000-0000-4000-8000-000000000001","flow":"xtls-rprx-vision"},
+			map[string]interface{}{"email":"alice@example.com","id":"00000000-0000-4000-8000-000000000001","flow":"xtls-rprx-vision"},
 		}}},
 	}})
-	if err := m.UpdateClient("vless-in", "alice", map[string]interface{}{}); err == nil {
+	if err := m.UpdateClient("vless-in", "alice@example.com", map[string]interface{}{}); err == nil {
 		t.Fatal("expected empty patch to be rejected")
 	}
-	if err := m.UpdateClient("vless-in", "alice", map[string]interface{}{"email":"mallory"}); err == nil {
+	if err := m.UpdateClient("vless-in", "alice@example.com", map[string]interface{}{"email":"mallory"}); err == nil {
 		t.Fatal("expected identity-changing patch to be rejected")
 	}
-	if err := m.UpdateClient("vless-in", "alice", map[string]interface{}{"id":"not-a-uuid"}); err == nil {
+	if err := m.UpdateClient("vless-in", "alice@example.com", map[string]interface{}{"id":"not-a-uuid"}); err == nil {
 		t.Fatal("expected invalid replacement UUID to be rejected")
 	}
-	if err := m.UpdateClient("vless-in", "missing", map[string]interface{}{"flow":"xtls-rprx-vision"}); !errors.Is(err, os.ErrNotExist) {
+	if err := m.UpdateClient("vless-in", "missing@example.com", map[string]interface{}{"flow":"xtls-rprx-vision"}); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected missing client error, got %v", err)
 	}
-	if err := m.UpdateClient("vless-in", "alice", map[string]interface{}{"flow":"xtls-rprx-vision"}); err == nil {
+	if err := m.UpdateClient("vless-in", "alice@example.com", map[string]interface{}{"flow":"xtls-rprx-vision"}); err == nil {
 		t.Fatal("expected missing Xray binary to prevent applying a client update in this unit test")
 	}
 	inbounds, err := m.ListInbounds()
