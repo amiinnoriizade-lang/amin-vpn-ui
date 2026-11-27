@@ -123,7 +123,7 @@
       <a-alert type="info" show-icon message="یک Inbound جدید با TCP و بدون TLS ساخته می‌شود و روی تمام رابط‌های شبکه گوش می‌دهد. پورت باید در فایروال سرور و پنل ارائه‌دهنده نیز باز باشد."/>
     </template>
     <a-form-model-item label="نام کاربری" required><a-input v-model="clientForm.email" placeholder="amin-user-01"/></a-form-model-item>
-    <a-form-model-item label="Flow" v-if="clientForm.protocol==='vless'"><a-select v-model="clientForm.flow" allow-clear><a-select-option value="">بدون Flow</a-select-option><a-select-option value="xtls-rprx-vision">xtls-rprx-vision</a-select-option></a-select></a-form-model-item>
+    <a-form-model-item label="Flow" v-if="clientForm.protocol==='vless' && clientForm.mode==='existing'"><a-select v-model="clientForm.flow" allow-clear><a-select-option value="">بدون Flow</a-select-option><a-select-option value="xtls-rprx-vision">xtls-rprx-vision</a-select-option></a-select></a-form-model-item>
     <a-alert v-if="clientForm.mode==='existing' && !selectableInbounds.length" type="warning" show-icon message="Inbound قابل استفاده‌ای پیدا نشد؛ ابتدا فهرست را بروزرسانی کنید یا پورت جدید بسازید."/>
     <a-alert v-if="clientError" type="error" show-icon :message="clientError" style="margin-top:10px"/>
   </a-form-model>
@@ -268,7 +268,7 @@ const app = new Vue({
    try{
     const payload={email:email,totalGB:0,months:0,days:0,flow:this.clientForm.flow||''};
     if(creatingNew){payload.createInbound=true;payload.port=Number(this.clientForm.port);payload.protocol=this.clientForm.protocol||'vless';}
-    else{payload.inboundId:this.clientForm.inboundId;}
+    else{payload.inboundId=this.clientForm.inboundId;}
     const r=await HttpUtil.post('/panel/api/nodes/createClient/'+this.selectedNode.id,payload);
     if(!r||!r.success)throw new Error(this.responseMessage(r));
     this.createdEmail=email;
