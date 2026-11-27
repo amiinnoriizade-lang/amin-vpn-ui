@@ -264,7 +264,7 @@ const nodeColumns = [
 function emptyNode(){return {agentMode:false,name:'',remark:'',scheme:'https',address:'',publicAddress:'',port:2053,basePath:'',apiToken:'',enable:true,allowPrivateAddress:false,tlsVerifyMode:'system',pinnedCertSha256:'',inboundSyncMode:'all',inboundTags:'',outboundTag:'',guid:'',parentGuid:'',transitive:false};}
 const app = new Vue({
  delimiters:['[[',']]'], mixins:[MediaQueryMixin], el:'#app',
- data:{themeSwitcher,pageTitle:'Nodes',pageClass:'',loading:false,saving:false,probingId:null,nodes:[],columns:nodeColumns,modalVisible:false,editing:false,editingId:null,form:emptyNode(),selectedNode:null,nodeSnapshot:{inbounds:[],clients:[]},snapshotLoading:false,clientModalVisible:false,clientSaving:false,clientError:'',credentialModalVisible:false,createdEmail:'',createdCredential:'',createdLink:'',configError:'',configLoading:false,clientForm:{mode:'existing',inboundId:null,port:2053,email:'',flow:'',protocol:'vless'},nodeClientEditVisible:false,nodeClientEditSaving:false,nodeClientEditForm:{email:'',id:'',password:'',flow:'',security:'',level:null,alterId:null}},
+ data:{themeSwitcher,pageTitle:'Nodes',pageClass:'',loading:false,saving:false,probingId:null,nodes:[],columns:nodeColumns,modalVisible:false,editing:false,editingId:null,form:emptyNode(),selectedNode:null,nodeSnapshot:{inbounds:[],clients:[]},snapshotLoading:false,snapshotRefreshing:false,clientModalVisible:false,clientSaving:false,clientError:'',credentialModalVisible:false,createdEmail:'',createdCredential:'',createdLink:'',configError:'',configLoading:false,clientForm:{mode:'existing',inboundId:null,port:2053,email:'',flow:'',protocol:'vless'},nodeClientEditVisible:false,nodeClientEditSaving:false,nodeClientEditForm:{email:'',id:'',password:'',flow:'',security:'',level:null,alterId:null}},
  computed:{
   selectableInbounds(){return (this.nodeSnapshot.inbounds||[]).filter(ib=>ib.enable!==false&&['vless','vmess','trojan'].includes(String(ib.protocol||'').toLowerCase()));}
  },
@@ -285,10 +285,13 @@ const app = new Vue({
   },
   async showNode(n){this.selectedNode=n;this.nodeSnapshot={inbounds:[],clients:[]};this.snapshotLoading=true;const r=await HttpUtil.get('/panel/api/nodes/snapshot/'+n.id);this.snapshotLoading=false;if(r&&r.success)this.nodeSnapshot=r.obj||{inbounds:[],clients:[]};else this.$message.warning((r&&r.msg)||'دریافت Inboundها ناموفق بود');},
   async refreshNodeSnapshot(){
-   if(!this.selectedNode||this.snapshotLoading)return;
+   if(!this.selectedNode||this.snapshotLoading||this.snapshotRefreshing)return;
    const nodeId=this.selectedNode.id;
-   const r=await HttpUtil.get('/panel/api/nodes/snapshot/'+nodeId);
-   if(r&&r.success&&this.selectedNode&&this.selectedNode.id===nodeId)this.nodeSnapshot=r.obj||{inbounds:[],clients:[]};
+   this.snapshotRefreshing=true;
+   try{
+    const r=await HttpUtil.get('/panel/api/nodes/snapshot/'+nodeId);
+    if(r&&r.success&&this.selectedNode&&this.selectedNode.id===nodeId)this.nodeSnapshot=r.obj||{inbounds:[],clients:[]};
+   }finally{this.snapshotRefreshing=false;}
   },
   inboundDisplay(ib){return (ib.tag||ib.remoteTag||ib.remark||'Inbound')+' · '+String(ib.protocol||'').toUpperCase()+' · '+ib.port;},
   openCreateClient(ib){this.clientError='';const isNew=!ib&&!!(this.selectedNode&&this.selectedNode.agentMode);this.clientForm={mode:isNew?'new':'existing',inboundId:ib?ib.remoteId:null,port:2053,email:'',flow:'',protocol:ib?String(ib.protocol||'').toLowerCase():'vless'};this.clientModalVisible=true;},
