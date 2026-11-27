@@ -146,6 +146,34 @@ func inboundAPI(manager *xray.ConfigManager) http.HandlerFunc {
 	}
 }
 
+func protectedAPI(manager *xray.ConfigManager) http.Handler {
+	protected := http.NewServeMux()
+	protected.HandleFunc("/api/v1/capabilities", method(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+		features := []string{"health", "system", "capabilities"}
+		if manager != nil {
+			features = append(features, "inbounds.list", "inbounds.create", "inbounds.delete", "clients.create", "clients.update", "clients.delete")
+			if _, err := manager.StatsAPIAddress(); err == nil { features = append(features, "clients.stats") }
+		}
+		writeJSON(w, http.StatusOK, envelope{Success: true, Obj: map[string]interface{}{
+			"agentVersion": "0.3.1", "xrayManagement": manager != nil, "features": features,
+			"protocols": []string{"vless", "vmess", "trojan", "shadowsocks"},
+		}})
+	}))
+	protected.HandleFunc("/api/v1/system", method(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		writeJSON(w, http.StatusOK, envelope{Success: true, Obj: map[string]interface{}{
+			"goVersion": runtime.Version(), "goroutines": runtime.NumGoroutine(),
+			"heapAllocBytes": m.HeapAlloc, "uptimeSeconds": int64(time.Since(started).Seconds()),
+			"requests": atomic.LoadUint64(&requests), "os": runtime.GOOS, "arch": runtime.GOARCH,
+		}})
+	}))
+	protected.HandleFunc("/api/v1/inbounds", inboundAPI(manager))
+	protected.HandleFunc("/api/v1/inbounds/", inboundAPI(manager))
+	protected.HandleFunc("/api/v1/stats", inboundAPI(manager))
+	return protected
+}
+
 func main() {
 	token := strings.TrimSpace(os.Getenv("AMIN_NODE_TOKEN"))
 	if len(token) < 32 {
@@ -178,31 +206,7 @@ func main() {
 			"service": "amin-node-agent", "version": "0.3.1", "uptimeSeconds": int64(time.Since(started).Seconds()),
 		}})
 	}))
-	protected := http.NewServeMux()
-	protected.HandleFunc("/api/v1/capabilities", method(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
-		features := []string{"health", "system", "capabilities"}
-		if manager != nil {
-			features = append(features, "inbounds.list", "inbounds.create", "inbounds.delete", "clients.create", "clients.update", "clients.delete")
-			if _, err := manager.StatsAPIAddress(); err == nil { features = append(features, "clients.stats") }
-		}
-		writeJSON(w, http.StatusOK, envelope{Success: true, Obj: map[string]interface{}{
-			"agentVersion": "0.3.1", "xrayManagement": manager != nil, "features": features,
-			"protocols": []string{"vless", "vmess", "trojan", "shadowsocks"},
-		}})
-	}))
-	protected.HandleFunc("/api/v1/system", method(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
-		var m runtime.MemStats
-		runtime.ReadMemStats(&m)
-		writeJSON(w, http.StatusOK, envelope{Success: true, Obj: map[string]interface{}{
-			"goVersion": runtime.Version(), "goroutines": runtime.NumGoroutine(),
-			"heapAllocBytes": m.HeapAlloc, "uptimeSeconds": int64(time.Since(started).Seconds()),
-			"requests": atomic.LoadUint64(&requests), "os": runtime.GOOS, "arch": runtime.GOARCH,
-		}})
-	}))
-	protected.HandleFunc("/api/v1/inbounds", inboundAPI(manager))
-	protected.HandleFunc("/api/v1/inbounds/", inboundAPI(manager))
-	protected.HandleFunc("/api/v1/stats", inboundAPI(manager))
-	mux.Handle("/api/v1/", auth(token, protected))
+	mux.Handle("/api/v1/", auth(token, protectedAPI(manager)))
 	server := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
 	log.Printf("AMIN Node Agent 0.3.1 listening on %s", addr)
 	log.Fatal(server.ListenAndServe())
