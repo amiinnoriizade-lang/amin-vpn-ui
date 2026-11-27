@@ -93,18 +93,38 @@
   </a-row>
 </a-spin>
 <a-modal :visible="clientModalVisible" title="ساخت کاربر روی نود" :confirm-loading="clientSaving"
-  :ok-button-props="{disabled: !clientForm.inboundId || !selectableInbounds.length}"
+  :ok-button-props="{disabled: clientForm.mode==='new' ? (!clientForm.port || clientForm.port<1 || clientForm.port>65535) : (!clientForm.inboundId || !selectableInbounds.length)}"
   @ok="createNodeClient" @cancel="clientModalVisible=false" ok-text="ساخت کاربر" cancel-text="انصراف">
   <a-form-model :model="clientForm" :label-col="{span:6}" :wrapper-col="{span:18}">
-    <a-form-model-item label="انتخاب Inbound" required>
-      <a-select v-model="clientForm.inboundId" placeholder="یک Inbound انتخاب کنید" @change="onClientInboundChange">
-        <a-select-option v-for="ib in selectableInbounds" :key="ib.remoteId" :value="ib.remoteId">[[ inboundDisplay(ib) ]]</a-select-option>
-      </a-select>
+    <a-form-model-item label="روش ساخت">
+      <a-radio-group v-model="clientForm.mode" @change="clientError=''">
+        <a-radio value="existing">Inbound موجود</a-radio>
+        <a-radio value="new">پورت دلخواه جدید</a-radio>
+      </a-radio-group>
     </a-form-model-item>
+    <template v-if="clientForm.mode==='existing'">
+      <a-form-model-item label="انتخاب Inbound" required>
+        <a-select v-model="clientForm.inboundId" placeholder="یک Inbound انتخاب کنید" @change="onClientInboundChange">
+          <a-select-option v-for="ib in selectableInbounds" :key="ib.remoteId" :value="ib.remoteId">[[ inboundDisplay(ib) ]]</a-select-option>
+        </a-select>
+      </a-form-model-item>
+    </template>
+    <template v-else>
+      <a-form-model-item label="پورت دلخواه" required>
+        <a-input-number v-model="clientForm.port" :min="1" :max="65535" :step="1" style="width:100%" placeholder="مثلاً 443 یا 2053"/>
+      </a-form-model-item>
+      <a-form-model-item label="پروتکل">
+        <a-select v-model="clientForm.protocol">
+          <a-select-option value="vless">VLESS</a-select-option>
+          <a-select-option value="vmess">VMess</a-select-option>
+          <a-select-option value="trojan">Trojan</a-select-option>
+        </a-select>
+      </a-form-model-item>
+      <a-alert type="info" show-icon message="یک Inbound جدید با TCP و بدون TLS ساخته می‌شود و روی تمام رابط‌های شبکه گوش می‌دهد. پورت باید در فایروال سرور و پنل ارائه‌دهنده نیز باز باشد."/>
+    </template>
     <a-form-model-item label="نام کاربری" required><a-input v-model="clientForm.email" placeholder="amin-user-01"/></a-form-model-item>
     <a-form-model-item label="Flow" v-if="clientForm.protocol==='vless'"><a-select v-model="clientForm.flow" allow-clear><a-select-option value="">بدون Flow</a-select-option><a-select-option value="xtls-rprx-vision">xtls-rprx-vision</a-select-option></a-select></a-form-model-item>
-    <a-alert v-if="clientForm.inboundId" type="info" show-icon message="شناسه اتصال به‌صورت خودکار ساخته می‌شود."/>
-    <a-alert v-if="!selectableInbounds.length" type="warning" show-icon message="Inbound قابل استفاده‌ای پیدا نشد؛ ابتدا فهرست Inboundها را بروزرسانی کنید."/>
+    <a-alert v-if="clientForm.mode==='existing' && !selectableInbounds.length" type="warning" show-icon message="Inbound قابل استفاده‌ای پیدا نشد؛ ابتدا فهرست را بروزرسانی کنید یا پورت جدید بسازید."/>
     <a-alert v-if="clientError" type="error" show-icon :message="clientError" style="margin-top:10px"/>
   </a-form-model>
 </a-modal>
@@ -212,7 +232,7 @@ const nodeColumns = [
 function emptyNode(){return {agentMode:false,name:'',remark:'',scheme:'https',address:'',port:2053,basePath:'',apiToken:'',enable:true,allowPrivateAddress:false,tlsVerifyMode:'system',pinnedCertSha256:'',inboundSyncMode:'all',inboundTags:'',outboundTag:'',guid:'',parentGuid:'',transitive:false};}
 const app = new Vue({
  delimiters:['[[',']]'], mixins:[MediaQueryMixin], el:'#app',
- data:{themeSwitcher,pageTitle:'Nodes',pageClass:'',loading:false,saving:false,probingId:null,nodes:[],columns:nodeColumns,modalVisible:false,editing:false,editingId:null,form:emptyNode(),selectedNode:null,nodeSnapshot:{inbounds:[],clients:[]},snapshotLoading:false,clientModalVisible:false,clientSaving:false,clientError:'',credentialModalVisible:false,createdEmail:'',createdCredential:'',clientForm:{inboundId:null,email:'',flow:'',protocol:'',inboundLabel:''}},
+ data:{themeSwitcher,pageTitle:'Nodes',pageClass:'',loading:false,saving:false,probingId:null,nodes:[],columns:nodeColumns,modalVisible:false,editing:false,editingId:null,form:emptyNode(),selectedNode:null,nodeSnapshot:{inbounds:[],clients:[]},snapshotLoading:false,clientModalVisible:false,clientSaving:false,clientError:'',credentialModalVisible:false,createdEmail:'',createdCredential:'',clientForm:{mode:'existing',inboundId:null,port:2053,email:'',flow:'',protocol:'vless'}},
  computed:{
   selectableInbounds(){return (this.nodeSnapshot.inbounds||[]).filter(ib=>ib.enable!==false&&['vless','vmess','trojan'].includes(String(ib.protocol||'').toLowerCase()));}
  },
@@ -233,18 +253,23 @@ const app = new Vue({
   },
   async showNode(n){this.selectedNode=n;this.nodeSnapshot={inbounds:[],clients:[]};this.snapshotLoading=true;const r=await HttpUtil.get('/panel/api/nodes/snapshot/'+n.id);this.snapshotLoading=false;if(r&&r.success)this.nodeSnapshot=r.obj||{inbounds:[],clients:[]};else this.$message.warning((r&&r.msg)||'دریافت Inboundها ناموفق بود');},
   inboundDisplay(ib){return (ib.tag||ib.remoteTag||ib.remark||'Inbound')+' · '+String(ib.protocol||'').toUpperCase()+' · '+ib.port;},
-  openCreateClient(ib){this.clientError='';this.clientForm={inboundId:ib.remoteId,email:'',flow:'',protocol:(ib.protocol||'').toLowerCase()};this.clientModalVisible=true;},
+  openCreateClient(ib){this.clientError='';this.clientForm={mode:'existing',inboundId:ib.remoteId,port:2053,email:'',flow:'',protocol:(ib.protocol||'').toLowerCase()};this.clientModalVisible=true;},
   onClientInboundChange(id){const ib=this.selectableInbounds.find(x=>Number(x.remoteId)===Number(id));this.clientForm.protocol=ib?String(ib.protocol||'').toLowerCase():'';this.clientForm.flow='';this.clientError='';},
   responseMessage(value){const data=value&&value.response&&value.response.data?value.response.data:value;return (data&&(data.msg||data.message||data.error))||(value&&value.message)||'خطای نامشخص هنگام ساخت کاربر';},
   async createNodeClient(){
    const email=String(this.clientForm.email||'').trim();
-   if(!email){this.$message.error('نام کاربری را وارد کنید');return;}
-   const inbound=this.selectableInbounds.find(x=>Number(x.remoteId)===Number(this.clientForm.inboundId));
-   if(!inbound){this.clientError='Inbound انتخاب‌شده معتبر نیست؛ فهرست را بروزرسانی و دوباره انتخاب کنید.';return;}
+   if(!email){this.clientError='نام کاربری را وارد کنید';return;}
    if(!this.selectedNode){this.clientError='نودی برای ساخت کاربر انتخاب نشده است.';return;}
+   const creatingNew=this.clientForm.mode==='new';
+   const inbound=creatingNew?null:this.selectableInbounds.find(x=>Number(x.remoteId)===Number(this.clientForm.inboundId));
+   if(!creatingNew&&!inbound){this.clientError='Inbound انتخاب‌شده معتبر نیست؛ فهرست را بروزرسانی و دوباره انتخاب کنید.';return;}
+   if(creatingNew&&(!Number.isInteger(Number(this.clientForm.port))||Number(this.clientForm.port)<1||Number(this.clientForm.port)>65535)){this.clientError='پورت باید عددی بین 1 تا 65535 باشد.';return;}
    this.clientSaving=true;this.clientError='';
    try{
-    const r=await HttpUtil.post('/panel/api/nodes/createClient/'+this.selectedNode.id,{inboundId:this.clientForm.inboundId,email:email,totalGB:0,months:0,days:0,flow:this.clientForm.flow});
+    const payload={email:email,totalGB:0,months:0,days:0,flow:this.clientForm.flow||''};
+    if(creatingNew){payload.createInbound=true;payload.port=Number(this.clientForm.port);payload.protocol=this.clientForm.protocol||'vless';}
+    else{payload.inboundId:this.clientForm.inboundId;}
+    const r=await HttpUtil.post('/panel/api/nodes/createClient/'+this.selectedNode.id,payload);
     if(!r||!r.success)throw new Error(this.responseMessage(r));
     this.createdEmail=email;
     this.createdCredential=(r.obj&&(r.obj.credential||r.obj.id||r.obj.password))||'';
@@ -254,6 +279,16 @@ const app = new Vue({
     await this.showNode(this.selectedNode);
    }catch(e){
     this.clientError=this.responseMessage(e);
+    const data=e&&e.response&&e.response.data?e.response.data:e;
+    if(creatingNew&&data&&data.obj&&data.obj.inboundId){
+     const created=data.obj;
+     await this.showNode(this.selectedNode);
+     this.clientForm.mode='existing';
+     this.clientForm.inboundId=created.inboundId;
+     const ib=this.selectableInbounds.find(x=>Number(x.remoteId)===Number(created.inboundId));
+     this.clientForm.protocol=ib?String(ib.protocol||'').toLowerCase():this.clientForm.protocol;
+     this.clientError=this.responseMessage(e)+'؛ Inbound ساخته‌شده در فهرست موجود است و می‌توانید ساخت کاربر را روی آن تکرار کنید.';
+    }
     this.$message.error(this.clientError);
    }finally{this.clientSaving=false;}
   },
