@@ -348,21 +348,14 @@ func (s *AccountService) verifyAccountsPass(tx *gorm.DB, report *AccountsMigrati
 	if err := tx.Find(&accounts).Error; err != nil {
 		return err
 	}
-	accountById := map[int]*model.Account{}
-	for i := range accounts {
-		accountById[accounts[i].Id] = &accounts[i]
-	}
-
 	var memberships []model.AccountInbound
 	if err := tx.Find(&memberships).Error; err != nil {
 		return err
 	}
 	byPair := map[[2]int]*model.AccountInbound{}
-	membershipsPerAccount := map[int]int{}
 	for i := range memberships {
 		m := &memberships[i]
 		byPair[[2]int{m.AccountId, m.InboundId}] = m
-		membershipsPerAccount[m.AccountId]++
 	}
 
 	// Accounts without memberships are valid: the Clients UI supports parked
