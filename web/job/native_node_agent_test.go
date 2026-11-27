@@ -176,6 +176,15 @@ func TestProbeNativeAgentLatencyMeasuresHealthOnly(t *testing.T) {
 	if patch["status"] != "online" {
 		t.Fatalf("expected online status, got %v (error: %v)", patch["status"], patch["last_error"])
 	}
+	if patch["agent_version"] != "0.2.1" {
+		t.Fatalf("agent version was not decoded from response envelope: %v", patch["agent_version"])
+	}
+	if patch["xray_state"] != "managed" {
+		t.Fatalf("Xray management capability was not decoded from response envelope: %v", patch["xray_state"])
+	}
+	if patch["uptime_secs"] != uint64(900) {
+		t.Fatalf("system uptime was not decoded from response envelope: %v", patch["uptime_secs"])
+	}
 	latency := patch["latency_ms"].(int)
 	if latency < 50 || latency >= 250 {
 		t.Fatalf("health latency = %dms, want the health-only round trip (50-249ms)", latency)
