@@ -10,6 +10,7 @@ on:
       - "web/controller/*_test.go"
       - "web/controller/*_test.go"
       - "web/job/node*.go"
+      - "web/job/native_node_agent*.go"
       - "web/html/nodes.html"
       - "config/version"
       - ".github/workflows/amin-ui-node-integration.yml"
