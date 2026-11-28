@@ -87,7 +87,7 @@ func method(want string, fn http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func inboundAPI(manager *xray.ConfigManager) http.HandlerFunc {
+func inboundAPI(manager *xray.ConfigManager, runtimeManager *xray.RuntimeManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if manager == nil {
 			writeJSON(w, http.StatusServiceUnavailable, envelope{Success: false, Msg: "Xray manager is unavailable; check Xray paths and service"})
@@ -95,7 +95,13 @@ func inboundAPI(manager *xray.ConfigManager) http.HandlerFunc {
 		}
 		switch {
 		case r.URL.Path == "/api/v1/inbounds" && r.Method == http.MethodGet:
-			items, err := manager.ListInbounds()
+			var items []map[string]interface{}
+			var err error
+			if runtimeManager != nil {
+				items, err = runtimeManager.ListInbounds()
+			} else {
+				items, err = manager.ListInbounds()
+			}
 			if err != nil { writeError(w, err); return }
 			writeJSON(w, http.StatusOK, envelope{Success: true, Obj: items})
 		case r.URL.Path == "/api/v1/inbounds" && r.Method == http.MethodPost:
@@ -116,12 +122,20 @@ func inboundAPI(manager *xray.ConfigManager) http.HandlerFunc {
 				case http.MethodPost:
 					var client map[string]interface{}
 					if err := decodeBody(w, r, &client); err != nil { writeError(w, err); return }
-					if err := manager.AddClient(parts[0], client); err != nil { writeError(w, err); return }
-					writeJSON(w, http.StatusCreated, envelope{Success: true, Msg: "client created"})
+					if runtimeManager == nil {
+						writeJSON(w, http.StatusServiceUnavailable, envelope{Success: false, Msg: "Xray HandlerService is not configured; live client management is unavailable"})
+						return
+					}
+					if err := runtimeManager.AddClient(parts[0], client); err != nil { writeError(w, err); return }
+					writeJSON(w, http.StatusCreated, envelope{Success: true, Msg: "client created without restarting Xray"})
 				case http.MethodDelete:
 					email := r.URL.Query().Get("email")
-					if err := manager.DeleteClient(parts[0], email); err != nil { writeError(w, err); return }
-					writeJSON(w, http.StatusOK, envelope{Success: true, Msg: "client deleted"})
+					if runtimeManager == nil {
+						writeJSON(w, http.StatusServiceUnavailable, envelope{Success: false, Msg: "Xray HandlerService is not configured; live client management is unavailable"})
+						return
+					}
+					if err := runtimeManager.DeleteClient(parts[0], email); err != nil { writeError(w, err); return }
+					writeJSON(w, http.StatusOK, envelope{Success: true, Msg: "client deleted without restarting Xray"})
 				default:
 					w.Header().Set("Allow", "POST, DELETE")
 					writeJSON(w, http.StatusMethodNotAllowed, envelope{Success: false, Msg: "method not allowed"})
@@ -159,18 +173,28 @@ func main() {
 		manager = nil
 	}
 
+	var runtimeManager *xray.RuntimeManager
+	if manager != nil {
+		statePath := strings.TrimSpace(os.Getenv("AMIN_NODE_STATE"))
+		if statePath == "" { statePath = "/var/lib/amin-node-agent/runtime-clients.json" }
+		var err error
+		runtimeManager, err = xray.NewRuntimeManager(manager, statePath)
+		if err != nil { log.Printf("Xray live client API unavailable: %v", err) } else { defer runtimeManager.Close() }
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", method(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, envelope{Success: true, Obj: map[string]interface{}{
-			"service": "amin-node-agent", "version": "0.2.2", "uptimeSeconds": int64(time.Since(started).Seconds()),
+			"service": "amin-node-agent", "version": "0.3.0", "uptimeSeconds": int64(time.Since(started).Seconds()),
 		}})
 	}))
 	protected := http.NewServeMux()
 	protected.HandleFunc("/api/v1/capabilities", method(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 		features := []string{"health", "system", "capabilities"}
-		if manager != nil { features = append(features, "inbounds.list", "inbounds.create", "inbounds.delete", "clients.create", "clients.delete") }
+		if manager != nil { features = append(features, "inbounds.list", "inbounds.create", "inbounds.delete") }
+		if runtimeManager != nil { features = append(features, "clients.create", "clients.delete", "clients.runtime", "clients.persistent") }
 		writeJSON(w, http.StatusOK, envelope{Success: true, Obj: map[string]interface{}{
-			"agentVersion": "0.2.2", "xrayManagement": manager != nil, "features": features,
+			"agentVersion": "0.3.0", "xrayManagement": manager != nil, "liveClientManagement": runtimeManager != nil, "features": features,
 			"protocols": []string{"vless", "vmess", "trojan", "shadowsocks"},
 		}})
 	}))
@@ -183,10 +207,10 @@ func main() {
 			"requests": atomic.LoadUint64(&requests), "os": runtime.GOOS, "arch": runtime.GOARCH,
 		}})
 	}))
-	protected.HandleFunc("/api/v1/inbounds", inboundAPI(manager))
+	protected.HandleFunc("/api/v1/inbounds", inboundAPI(manager, runtimeManager))
 	protected.HandleFunc("/api/v1/inbounds/", inboundAPI(manager))
 	mux.Handle("/api/v1/", auth(token, protected))
 	server := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
-	log.Printf("AMIN Node Agent 0.2.2 listening on %s", addr)
+	log.Printf("AMIN Node Agent 0.3.0 listening on %s", addr)
 	log.Fatal(server.ListenAndServe())
 }
