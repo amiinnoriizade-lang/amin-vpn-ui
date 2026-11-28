@@ -399,13 +399,17 @@ func (m *RuntimeManager) AddClient(tag string, client map[string]interface{}) er
 	credentialKey, err := validateRuntimeClient(proto, client)
 	if err != nil { return err }
 	credential := stringField(client, credentialKey)
+	actualStaticEmail := email
 	tombstoned := false
 	for _, deleted := range m.state.Deleted {
 		if deleted.Tag == tag && strings.EqualFold(deleted.Email, email) { tombstoned = true; break }
 	}
 	for _, raw := range staticClients {
 		if existing, ok := raw.(map[string]interface{}); ok {
-			if strings.EqualFold(stringField(existing, "email"), email) && !tombstoned { return errors.New("client email already exists in Xray config") }
+			if strings.EqualFold(stringField(existing, "email"), email) {
+				if !tombstoned { return errors.New("client email already exists in Xray config") }
+				actualStaticEmail = stringField(existing, "email")
+			}
 			if stringField(existing, credentialKey) == credential { return fmt.Errorf("client %s already exists in Xray config", credentialKey) }
 		}
 	}
@@ -421,7 +425,7 @@ func (m *RuntimeManager) AddClient(tag string, client map[string]interface{}) er
 	if tombstoned {
 		filtered := make([]runtimeTombstone, 0, len(m.state.Deleted))
 		for _, deleted := range m.state.Deleted {
-			if deleted.Tag != tag || deleted.Email != email { filtered = append(filtered, deleted) }
+			if deleted.Tag != tag || !strings.EqualFold(deleted.Email, email) { filtered = append(filtered, deleted) }
 		}
 		m.state.Deleted = filtered
 	}
@@ -432,7 +436,7 @@ func (m *RuntimeManager) AddClient(tag string, client map[string]interface{}) er
 		return fmt.Errorf("persist client before applying: %w", err)
 	}
 	if tombstoned {
-		if err := m.api.RemoveUser(tag, email); err != nil && !isMissingUserError(err) {
+		if err := m.api.RemoveUser(tag, actualStaticEmail); err != nil && !isMissingUserError(err) {
 			m.state.Clients = m.state.Clients[:len(m.state.Clients)-1]
 			m.state.Deleted = previousDeleted
 			_ = m.saveLocked()
