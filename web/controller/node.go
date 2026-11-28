@@ -419,6 +419,38 @@ func (a *NodeController) createClient(c *gin.Context) {
 }
 
 // snapshot returns the last successfully synchronized, credential-free view of a node.
+func syncSSHNodeSnapshots(ctx context.Context, n model.Node) error {
+ inbounds,err:=job.SSHNodeListInbounds(ctx,n)
+ if err!=nil { return err }
+ now:=time.Now().UnixMilli()
+ inboundRows:=make([]model.NodeInboundSnapshot,0,len(inbounds))
+ clientMap:=map[string]*model.NodeClientSnapshot{}
+ for _,ib:=range inbounds {
+  remoteID:=job.NativeAgentInboundID(ib.Tag)
+  inboundRows=append(inboundRows,model.NodeInboundSnapshot{NodeID:n.Id,RemoteID:remoteID,Tag:ib.Tag,RemoteTag:ib.Tag,Remark:ib.Tag,Protocol:ib.Protocol,Listen:ib.Listen,Port:ib.Port,Enable:true,LastSyncAt:now})
+  var settings struct { Clients []map[string]any `json:"clients"` }
+  if len(ib.Settings)>0 { if err=json.Unmarshal(ib.Settings,&settings);err!=nil { return fmt.Errorf("decode clients in %s: %w",ib.Tag,err) } }
+  for _,cl:=range settings.Clients {
+   email:=strings.ToLower(strings.TrimSpace(fmt.Sprint(cl["email"])))
+   if email=="" || email=="<nil>" { continue }
+   enabled:=true
+   if value,ok:=cl["enable"].(bool);ok { enabled=value }
+   row:=clientMap[email]
+   if row==nil { row=&model.NodeClientSnapshot{NodeID:n.Id,Email:email,Enable:enabled,LastSyncAt:now}; clientMap[email]=row } else { row.Enable=row.Enable||enabled }
+   if expiry,ok:=cl["expiryTime"].(float64);ok && int64(expiry)>row.ExpiryTime { row.ExpiryTime=int64(expiry) }
+  }
+ }
+ clientRows:=make([]model.NodeClientSnapshot,0,len(clientMap))
+ for _,row:=range clientMap { clientRows=append(clientRows,*row) }
+ return nodeDB().Transaction(func(tx *gorm.DB) error {
+  if err:=tx.Where("node_id = ?",n.Id).Delete(&model.NodeInboundSnapshot{}).Error;err!=nil{return err}
+  if err:=tx.Where("node_id = ?",n.Id).Delete(&model.NodeClientSnapshot{}).Error;err!=nil{return err}
+  if len(inboundRows)>0 { if err:=tx.CreateInBatches(&inboundRows,100).Error;err!=nil{return err} }
+  if len(clientRows)>0 { if err:=tx.CreateInBatches(&clientRows,200).Error;err!=nil{return err} }
+  return tx.Model(&model.Node{}).Where("id = ?",n.Id).Updates(map[string]any{"inbound_count":len(inboundRows),"client_count":len(clientRows),"last_sync_at":now,"last_sync_error":""}).Error
+ })
+}
+
 func (a *NodeController) snapshot(c *gin.Context) {
  id, err := strconv.Atoi(c.Param("id"))
  if err != nil || id < 1 {
@@ -429,6 +461,16 @@ func (a *NodeController) snapshot(c *gin.Context) {
  if err = nodeDB().First(&node, id).Error; err != nil {
   c.JSON(http.StatusNotFound, gin.H{"success": false, "msg": "node not found"})
   return
+ }
+ if node.SSHMode {
+  ctx,cancel:=context.WithTimeout(c.Request.Context(),18*time.Second)
+  syncErr:=syncSSHNodeSnapshots(ctx,node)
+  cancel()
+  if syncErr!=nil {
+   _=nodeDB().Model(&model.Node{}).Where("id = ?",id).Update("last_sync_error",syncErr.Error()).Error
+   c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"همگام‌سازی Inboundهای Xray از طریق SSH ناموفق بود: "+syncErr.Error()})
+   return
+  }
  }
  var inbounds []model.NodeInboundSnapshot
  if err = nodeDB().Where("node_id = ?", id).Order("remote_id asc").Find(&inbounds).Error; err != nil {
