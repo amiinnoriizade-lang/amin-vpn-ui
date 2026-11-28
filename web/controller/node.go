@@ -603,6 +603,33 @@ func (a *NodeController) updateNodeClient(c *gin.Context) {
 
 func (a *NodeController) deleteNodeClient(c *gin.Context) {
  n,ok:=a.loadManageableNode(c); if !ok { return }
+ if n.SSHMode {
+  email:=strings.ToLower(strings.TrimSpace(c.Param("email")))
+  if !validRemoteEmail(email) { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid username"}); return }
+  ctx,cancel:=context.WithTimeout(c.Request.Context(),30*time.Second); defer cancel()
+  inbounds,err:=job.SSHNodeListInbounds(ctx,n)
+  if err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"خواندن Inboundهای Xray ناموفق بود: "+err.Error()}); return }
+  cfg,err:=job.SSHNodeConfigFromModel(n)
+  if err!=nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":err.Error()}); return }
+  deleted:=make([]string,0)
+  for _,ib:=range inbounds {
+   if !strings.EqualFold(ib.Protocol,"vless") { continue }
+   var settings struct { Clients []map[string]any `json:"clients"` }
+   if len(ib.Settings)>0 { if err=json.Unmarshal(ib.Settings,&settings);err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"ساختار کاربران Inbound نامعتبر است"}); return } }
+   found:=false
+   for _,cl:=range settings.Clients { if strings.EqualFold(strings.TrimSpace(fmt.Sprint(cl["email"])),email) { found=true; break } }
+   if !found { continue }
+   if err=job.SSHXrayRemoveClient(ctx,cfg,ib.Tag,email);err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"حذف کاربر از Xray ناموفق بود: "+err.Error()}); return }
+   if err=job.SSHNodePersistVLESSClient(ctx,n,ib.Tag,email,"","",false);err!=nil {
+    c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"کاربر از حافظه Xray حذف شد اما ذخیره حذف در config.json ناموفق بود: "+err.Error()}); return
+   }
+   deleted=append(deleted,ib.Tag)
+  }
+  if len(deleted)==0 { c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"کاربر در Inboundهای VLESS این نود پیدا نشد"}); return }
+  if err=syncSSHNodeSnapshots(ctx,n);err!=nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"کاربر حذف شد اما بروزرسانی فهرست پنل ناموفق بود: "+err.Error()}); return }
+  c.JSON(http.StatusOK,gin.H{"success":true,"obj":gin.H{"deletedFrom":deleted}})
+  return
+ }
  if n.AgentMode {
   email:=strings.ToLower(strings.TrimSpace(c.Param("email")))
   if !validRemoteEmail(email) { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid username"}); return }
