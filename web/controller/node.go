@@ -157,9 +157,11 @@ func (a *NodeController) update(c *gin.Context) {
  var n model.Node
  if err=nodeDB().First(&n,id).Error; err!=nil {c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"node not found"});return}
  n=nodeFromMutation(v,n)
- encryptedToken, tokenErr := nodetoken.Encrypt(n.ApiToken)
- if tokenErr != nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"could not protect node API token: "+tokenErr.Error()}); return }
- n.ApiToken = encryptedToken
+ if !n.SSHMode {
+  encryptedToken, tokenErr := nodetoken.Encrypt(n.ApiToken)
+  if tokenErr != nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"could not protect node API token: "+tokenErr.Error()}); return }
+  n.ApiToken = encryptedToken
+ }
  if v.SSHPrivateKey!="" {
   encryptedKey, keyErr := nodetoken.Encrypt(v.SSHPrivateKey)
   if keyErr != nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"could not protect SSH private key"}); return }
