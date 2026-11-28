@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/amin-native-node-api
+      - feat/amin-direct-ssh-node
     paths:
       - "database/model/node*.go"
       - "web/controller/node.go"
