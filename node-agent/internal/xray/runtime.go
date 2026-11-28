@@ -197,10 +197,20 @@ func (m *RuntimeManager) load() error {
 	if err := os.MkdirAll(filepath.Dir(m.path), 0700); err != nil {
 		return fmt.Errorf("create runtime state directory: %w", err)
 	}
-	data, err := os.ReadFile(m.path)
+	info, err := os.Lstat(m.path)
 	if errors.Is(err, os.ErrNotExist) {
 		return m.saveLocked()
 	}
+	if err != nil {
+		return fmt.Errorf("inspect runtime state: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return errors.New("runtime state path must be a regular file, not a symlink or special file")
+	}
+	if err := os.Chmod(m.path, 0600); err != nil {
+		return fmt.Errorf("secure runtime state permissions: %w", err)
+	}
+	data, err := os.ReadFile(m.path)
 	if err != nil {
 		return fmt.Errorf("read runtime state: %w", err)
 	}
