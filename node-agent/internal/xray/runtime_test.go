@@ -150,9 +150,9 @@ func TestDeleteStaticClientUsesLiveAPIAndTombstoneWithoutConfigRewrite(t *testin
 	after, err := os.ReadFile(configPath)
 	if err != nil { t.Fatal(err) }
 	if string(after)!=string(original) { t.Fatal("deleting a static client rewrote Xray config") }
-	inbounds, err = m.ListInbounds()
+	listed, err := m.ListInbounds()
 	if err != nil { t.Fatal(err) }
-	edgeSettings:=inbounds[1]["settings"].(map[string]interface{})
+	edgeSettings:=listed[1]["settings"].(map[string]interface{})
 	clients:=edgeSettings["clients"].([]interface{})
 	if len(clients)!=0 { t.Fatalf("deleted static client remained in list: %#v",clients) }
 	if len(m.state.Deleted)!=1 || m.state.Deleted[0].Email!="Legacy-User" { t.Fatalf("tombstone was not persisted: %#v",m.state.Deleted) }
