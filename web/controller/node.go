@@ -13,6 +13,7 @@ import (
 
 
  "github.com/google/uuid"
+ "github.com/skip2/go-qrcode"
  "github.com/mhsanaei/3x-ui/v2/web/job"
  "github.com/mhsanaei/3x-ui/v2/web/websocket"
  "strconv"
@@ -745,6 +746,15 @@ func buildNativeAgentShareLink(publicHost,nodeName string,ib job.NativeAgentInbo
  }
 }
 
+
+// nativeShareQRCode returns a locally generated QR image. Credentials are never
+// sent to an external QR service.
+func nativeShareQRCode(link string) (string,error) {
+ png,err:=qrcode.Encode(link,qrcode.Medium,256)
+ if err!=nil { return "",fmt.Errorf("ساخت QR کانفیگ ناموفق بود: %w",err) }
+ return "data:image/png;base64,"+base64.StdEncoding.EncodeToString(png),nil
+}
+
 // nodeClientConfig fetches live Sanaei credentials and builds a share URI without
 // persisting UUIDs/passwords in the local database.
 func (a *NodeController) nodeClientConfig(c *gin.Context) {
@@ -768,7 +778,9 @@ func (a *NodeController) nodeClientConfig(c *gin.Context) {
     if !strings.EqualFold(strings.TrimSpace(fmt.Sprint(client["email"])),email) { continue }
     link,protocol,remark,linkErr:=buildNativeAgentShareLink(n.PublicAddress,n.Name,ib,client,email)
     if linkErr!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":linkErr.Error()}); return }
-    c.JSON(http.StatusOK,gin.H{"success":true,"obj":gin.H{"email":email,"nodeName":n.Name,"inbound":remark,"protocol":protocol,"port":ib.Port,"link":link}})
+    qr,qrErr:=nativeShareQRCode(link)
+    if qrErr!=nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":qrErr.Error()}); return }
+    c.JSON(http.StatusOK,gin.H{"success":true,"obj":gin.H{"email":email,"nodeName":n.Name,"inbound":remark,"protocol":protocol,"port":ib.Port,"link":link,"qrCode":qr}})
     return
    }
   }
@@ -867,5 +879,7 @@ func (a *NodeController) nodeClientConfig(c *gin.Context) {
  default:
   c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"تولید لینک برای پروتکل "+protocol+" پشتیبانی نشده است"}); return
  }
- c.JSON(http.StatusOK,gin.H{"success":true,"obj":gin.H{"email":email,"nodeName":n.Name,"inbound":remark,"protocol":protocol,"link":link}})
+ qr,qrErr:=nativeShareQRCode(link)
+ if qrErr!=nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":qrErr.Error()}); return }
+ c.JSON(http.StatusOK,gin.H{"success":true,"obj":gin.H{"email":email,"nodeName":n.Name,"inbound":remark,"protocol":protocol,"link":link,"qrCode":qr}})
 }
