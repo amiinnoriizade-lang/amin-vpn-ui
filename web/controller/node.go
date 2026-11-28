@@ -618,11 +618,17 @@ func (a *NodeController) deleteNodeClient(c *gin.Context) {
    var settings struct { Clients []map[string]any `json:"clients"` }
    if len(ib.Settings)>0 { if err=json.Unmarshal(ib.Settings,&settings);err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"ساختار کاربران Inbound نامعتبر است"}); return } }
    found:=false
-   for _,cl:=range settings.Clients { if strings.EqualFold(strings.TrimSpace(fmt.Sprint(cl["email"])),email) { found=true; break } }
+   clientID:=""
+   clientFlow:=""
+   for _,cl:=range settings.Clients { if strings.EqualFold(strings.TrimSpace(fmt.Sprint(cl["email"])),email) { found=true; clientID=strings.TrimSpace(fmt.Sprint(cl["id"])); clientFlow=strings.TrimSpace(fmt.Sprint(cl["flow"])); break } }
    if !found { continue }
+   if clientID=="" || clientID=="<nil>" { c.JSON(http.StatusConflict,gin.H{"success":false,"msg":"شناسه UUID کاربر در تنظیمات Inbound موجود نیست؛ حذف امن ممکن نیست"}); return }
    if err=job.SSHXrayRemoveClient(ctx,cfg,ib.Tag,email);err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"حذف کاربر از Xray ناموفق بود: "+err.Error()}); return }
    if err=job.SSHNodePersistVLESSClient(ctx,n,ib.Tag,email,"","",false);err!=nil {
-    c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"کاربر از حافظه Xray حذف شد اما ذخیره حذف در config.json ناموفق بود: "+err.Error()}); return
+    rollbackErr:=job.SSHXrayAddVLESSClient(ctx,cfg,ib.Tag,email,clientID,clientFlow)
+    msg:="کاربر از حافظه Xray حذف شد اما ذخیره حذف در config.json ناموفق بود: "+err.Error()
+    if rollbackErr!=nil { msg+="؛ بازگردانی کاربر در حافظه Xray نیز ناموفق بود: "+rollbackErr.Error() }
+    c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":msg}); return
    }
    deleted=append(deleted,ib.Tag)
   }
