@@ -326,7 +326,7 @@ func (a *NodeController) createClient(c *gin.Context) {
    }
   }
   client:=map[string]any{"email":req.Email,"level":0}
-  switch protocol { case "vless","vmess": client["id"]=uuid.NewString(); case "trojan": client["password"]=uuid.NewString() }
+  switch protocol { case "vless","vmess": client["id"]=uuid.NewString(); case "trojan","shadowsocks": client["password"]=uuid.NewString() }
   if req.Flow!="" { client["flow"]=req.Flow }
   if err=job.NativeAgentCreateClient(ctx,n,inbound.RemoteTag,client); err!=nil {
    msg:="AMIN Agent rejected client creation: "+err.Error()
@@ -735,6 +735,15 @@ func buildNativeAgentShareLink(publicHost,nodeName string,ib job.NativeAgentInbo
  switch protocol {
  case "vless","trojan":
   return fmt.Sprintf("%s://%s@%s?%s#%s",protocol,url.QueryEscape(credential),net.JoinHostPort(host,strconv.Itoa(ib.Port)),q.Encode(),label),protocol,remark,nil
+ case "shadowsocks":
+  var inboundSettings map[string]any
+  if len(ib.Settings)==0 || json.Unmarshal(ib.Settings,&inboundSettings)!=nil {
+   return "","","",fmt.Errorf("خواندن تنظیمات Shadowsocks ناموفق بود")
+  }
+  method:=nativeString(inboundSettings,"method")
+  if method=="" { return "","","",fmt.Errorf("روش رمزنگاری Shadowsocks در تنظیمات Inbound مشخص نشده است") }
+  userInfo:=base64.RawURLEncoding.EncodeToString([]byte(method+":"+credential))
+  return fmt.Sprintf("ss://%s@%s#%s",userInfo,net.JoinHostPort(host,strconv.Itoa(ib.Port)),label),"shadowsocks",remark,nil
  case "vmess":
   tlsValue:=""; if security=="tls" { tlsValue="tls" }
   wsPath,wsHost:=q.Get("path"),q.Get("host")
