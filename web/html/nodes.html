@@ -313,7 +313,7 @@ const app = new Vue({
   openAdd(){this.editing=false;this.editingId=null;this.form=emptyNode();this.modalVisible=true;},
   openEdit(n){this.editing=true;this.editingId=n.id;this.form=Object.assign(emptyNode(),n,{apiToken:'',sshPrivateKey:''});this.modalVisible=true;},
   async saveNode(){
-   if(!this.form.name.trim()||!this.form.address.trim()||!this.form.port){this.$message.error('نام، آدرس و پورت الزامی است');return;}
+   if(!this.form.name.trim()||!this.form.address.trim()||(!this.form.sshMode&&!this.form.port)){this.$message.error('نام و آدرس نود و پورت مدیریتی الزامی است');return;}
    if(this.form.sshMode){if(!this.form.sshUsername.trim()||!this.form.sshPort){this.$message.error('نام کاربری و پورت SSH الزامی است');return;}if(!this.editing&&!this.form.sshPrivateKey.trim()){this.$message.error('کلید خصوصی SSH الزامی است');return;}}else if(!this.form.agentMode&&!this.editing&&!this.form.apiToken.trim()){this.$message.error('API Token الزامی است');return;}
    this.saving=true;const payload=Object.assign({},this.form);if(this.form.sshMode){payload.port=0;payload.scheme='';payload.basePath='';payload.apiToken='';}else{payload.sshPrivateKey='';}const url=this.editing?('/panel/api/nodes/update/'+this.editingId):'/panel/api/nodes/add';
    const r=await HttpUtil.post(url,payload);this.saving=false;
