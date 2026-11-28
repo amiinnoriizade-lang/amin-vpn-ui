@@ -89,7 +89,7 @@
             <small style="color:var(--muted)">[[ ib.listen || '0.0.0.0' ]]:[[ ib.port ]]</small>
           </template>
           <template slot="inboundActions" slot-scope="text,ib">
-            <a-button size="small" type="primary" icon="user-add" @click="openCreateClient(ib)">ساخت کاربر</a-button>
+            <a-button v-if="!selectedNode.sshMode || String(ib.protocol||'').toLowerCase()==='vless'" size="small" type="primary" icon="user-add" @click="openCreateClient(ib)">ساخت کاربر</a-button>
           </template>
         </a-table>
         <a-divider>کاربران این نود</a-divider>
