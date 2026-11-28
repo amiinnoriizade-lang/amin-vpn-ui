@@ -179,7 +179,30 @@ func main() {
 		if statePath == "" { statePath = "/var/lib/amin-node-agent/runtime-clients.json" }
 		var err error
 		runtimeManager, err = xray.NewRuntimeManager(manager, statePath)
-		if err != nil { log.Printf("Xray live client API unavailable: %v", err) } else { defer runtimeManager.Close() }
+		if err != nil {
+			log.Printf("Xray live client API unavailable: %v", err)
+		} else {
+			defer runtimeManager.Close()
+			if err := runtimeManager.ReconcileIfChanged(); err != nil {
+				log.Printf("Initial runtime client reconciliation deferred: %v", err)
+			}
+			stopReconcile := make(chan struct{})
+			defer close(stopReconcile)
+			go func() {
+				ticker := time.NewTicker(15 * time.Second)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-stopReconcile:
+						return
+					case <-ticker.C:
+						if err := runtimeManager.ReconcileIfChanged(); err != nil {
+							log.Printf("Runtime client reconciliation pending: %v", err)
+						}
+					}
+				}
+			}()
+		}
 	}
 
 	mux := http.NewServeMux()
@@ -208,7 +231,7 @@ func main() {
 		}})
 	}))
 	protected.HandleFunc("/api/v1/inbounds", inboundAPI(manager, runtimeManager))
-	protected.HandleFunc("/api/v1/inbounds/", inboundAPI(manager))
+	protected.HandleFunc("/api/v1/inbounds/", inboundAPI(manager, runtimeManager))
 	mux.Handle("/api/v1/", auth(token, protected))
 	server := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
 	log.Printf("AMIN Node Agent 0.3.0 listening on %s", addr)
