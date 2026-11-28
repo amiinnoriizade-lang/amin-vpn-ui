@@ -25,7 +25,7 @@ func SSHNodeConfigFromModel(n model.Node) (SSHNodeConfig,error) {
 func SSHNodePersistVLESSClient(ctx context.Context,n model.Node,tag,email,id,flow string,add bool) error {
 	if !n.SSHMode { return fmt.Errorf("node is not configured for direct SSH") }
 	tag,email,id=strings.TrimSpace(tag),strings.TrimSpace(email),strings.TrimSpace(id)
-	if tag=="" || email=="" || id=="" { return fmt.Errorf("inbound tag, email and UUID are required") }
+	if tag=="" || email=="" || (add && id=="") { return fmt.Errorf("inbound tag and email are required; UUID is required when adding") }
 	payload,err:=json.Marshal(map[string]any{"tag":tag,"email":email,"id":id,"flow":flow,"add":add})
 	if err!=nil { return err }
 	cfg,err:=SSHNodeConfigFromModel(n)
