@@ -42,10 +42,16 @@ type runtimeClient struct {
 	Client   map[string]interface{} `json:"client"`
 }
 
+type runtimeTombstone struct {
+	Tag string `json:"tag"`
+	Email string `json:"email"`
+}
+
 type runtimeState struct {
 	Version int `json:"version"`
 	CorePID int `json:"corePid,omitempty"`
 	Clients []runtimeClient `json:"clients"`
+	Deleted []runtimeTombstone `json:"deleted,omitempty"`
 }
 
 // RuntimeManager stores users independently of the Xray JSON config and applies
@@ -234,6 +240,7 @@ func (m *RuntimeManager) load() error {
 	if state.Version != 1 || state.Clients == nil {
 		return errors.New("unsupported or invalid runtime state file")
 	}
+	if state.Deleted == nil { state.Deleted = []runtimeTombstone{} }
 	m.state = state
 	return nil
 }
@@ -280,15 +287,25 @@ func (m *RuntimeManager) ListInbounds() ([]map[string]interface{}, error) {
 	for _, in := range inbounds {
 		byTag[stringField(in, "tag")] = in
 	}
+	deleted := make(map[string]bool, len(m.state.Deleted))
+	for _, item := range m.state.Deleted { deleted[runtimeKey(item.Tag, item.Email)] = true }
+	for _, in := range inbounds {
+		settings, ok := in["settings"].(map[string]interface{})
+		if !ok { continue }
+		clients, _ := settings["clients"].([]interface{})
+		filtered := make([]interface{}, 0, len(clients))
+		for _, raw := range clients {
+			existing, ok := raw.(map[string]interface{})
+			if ok && deleted[runtimeKey(stringField(in,"tag"), stringField(existing,"email"))] { continue }
+			filtered = append(filtered, raw)
+		}
+		settings["clients"] = filtered
+	}
 	for _, entry := range m.state.Clients {
 		in := byTag[entry.Tag]
-		if in == nil {
-			continue
-		}
+		if in == nil { continue }
 		settings, ok := in["settings"].(map[string]interface{})
-		if !ok {
-			continue
-		}
+		if !ok { continue }
 		clients, _ := settings["clients"].([]interface{})
 		duplicate := false
 		for _, raw := range clients {
@@ -297,9 +314,7 @@ func (m *RuntimeManager) ListInbounds() ([]map[string]interface{}, error) {
 				break
 			}
 		}
-		if !duplicate {
-			settings["clients"] = append(clients, entry.Client)
-		}
+		if !duplicate { settings["clients"] = append(clients, entry.Client) }
 	}
 	return inbounds, nil
 }
