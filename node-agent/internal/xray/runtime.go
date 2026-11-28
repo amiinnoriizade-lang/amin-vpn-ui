@@ -216,6 +216,9 @@ func (m *RuntimeManager) load() error {
 	if err := os.MkdirAll(filepath.Dir(m.path), 0700); err != nil {
 		return fmt.Errorf("create runtime state directory: %w", err)
 	}
+	if err := os.Chmod(filepath.Dir(m.path), 0700); err != nil {
+		return fmt.Errorf("secure runtime state directory: %w", err)
+	}
 	info, err := os.Lstat(m.path)
 	if errors.Is(err, os.ErrNotExist) {
 		return m.saveLocked()
@@ -271,7 +274,14 @@ func (m *RuntimeManager) saveLocked() error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, m.path)
+	if err := os.Rename(tmpPath, m.path); err != nil {
+		return err
+	}
+	dir, err := os.Open(filepath.Dir(m.path))
+	if err != nil { return fmt.Errorf("open runtime state directory for sync: %w", err) }
+	defer dir.Close()
+	if err := dir.Sync(); err != nil { return fmt.Errorf("sync runtime state directory: %w", err) }
+	return nil
 }
 
 func runtimeKey(tag, email string) string { return tag + "\x00" + email }
