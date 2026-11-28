@@ -1,6 +1,6 @@
 # AMIN Node Agent
 
-The standalone Go agent provides authenticated local control of an Xray node. Current Agent version: `0.2.2`. It binds to loopback by default and does not require Sanaei.
+The standalone Go agent provides authenticated local control of an Xray node. Current Agent version: `0.3.0`. It binds to loopback by default and does not require Sanaei.
 
 ## Build and test
 
@@ -23,7 +23,7 @@ export AMIN_XRAY_SERVICE="xray"
 ./amin-node-agent
 ```
 
-The process must have permission to read and replace the Xray config and restart the configured systemd service. Use a dedicated service account with narrowly scoped sudo/systemd permissions in production; do not run the API on a public interface without TLS termination and firewall restrictions.
+The agent needs read access to the Xray config. Inbound creation/deletion still validates and replaces the config and restarts Xray. Client creation/deletion is different: it uses the Xray HandlerService gRPC API and does not rewrite the Xray config or restart the service. The agent also writes a separate runtime-client state file with mode 0600. Set `AMIN_NODE_STATE` to move it; the default is `/var/lib/amin-node-agent/runtime-clients.json`. The service account needs permission to write that directory and connect to the local Xray API. Do not expose the HTTP API publicly without TLS and firewall restrictions.
 
 - `GET /health` is public.
 - All `/api/v1/*` endpoints require `Authorization: Bearer $AMIN_NODE_TOKEN`.
@@ -69,10 +69,10 @@ Example create request (the settings and stream settings are Xray-native objects
 - `POST /api/v1/inbounds/{tag}/clients`
 - `DELETE /api/v1/inbounds/{tag}/clients?email={email}`
 
-Client JSON accepts only `email`, `id`, `level`, `flow`, `alterId`, `security`, and `password`. VLESS/VMess require a syntactically valid UUID in `id`; Trojan and Shadowsocks require a non-empty `password`. Client identity credentials (`id` or `password`) and email must be unique within the inbound. String/numeric field types and whitespace in email are validated before any config write. Shadowsocks cipher selection belongs to the inbound's Xray settings, not an individual client.
+Live client creation currently supports VLESS, VMess, Trojan, and Shadowsocks inbounds. VLESS/VMess require a syntactically valid UUID in `id`; Trojan/Shadowsocks require a non-empty `password`. New runtime-managed clients are persisted outside the Xray config and are merged into `GET /api/v1/inbounds` so the panel can retrieve their credentials. Deletion through this endpoint is intentionally limited to clients recorded in AMIN runtime state; legacy clients defined directly in the Xray config are not silently removed.
 
 ## Safety behavior
 
-Before a mutation, the agent writes a staged JSON file and runs `xray run -test -config <staged-file>`. If validation succeeds, it creates a timestamped backup, atomically replaces the configured file, and restarts the configured systemd service. If restart fails, it restores the previous config and attempts to restart the service again. Backups are retained for operator-controlled cleanup.
+Inbound mutations still use staged config validation, timestamped backup, atomic replacement, and a service restart with rollback on failure. Runtime client mutations call Xray `HandlerService.AlterInbound` and do not touch the Xray config or restart Xray. Runtime client state is stored as JSON with restrictive file permissions. A full automatic re-application of saved runtime clients after an independent Xray restart is not yet implemented; do not treat that recovery scenario as complete.
 
-The current implementation manages inbound definitions and basic client records only. It does not yet implement node enrollment/rotation, URI/QR generation, traffic accounting, or AMIN-UI Core integration. Do not treat it as a production-ready remote control plane until those milestones and a full integration test are complete.
+The current implementation does not yet implement node enrollment/rotation, URI/QR generation, traffic accounting, or AMIN-UI Core integration. Runtime client persistence is in place, but automatic reconciliation after Xray process restart and end-to-end testing against a real Xray service remain release blockers. Do not treat this as a production-ready remote control plane yet.
