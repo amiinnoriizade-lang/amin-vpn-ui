@@ -23,6 +23,32 @@ type SSHNodeConfig struct {
 	Timeout       time.Duration
 }
 
+// DialSSHNode establishes an authenticated SSH connection with strict host-key
+// verification. Callers must close the returned client. It is also used for
+// forwarding the node's loopback-only Xray gRPC API through SSH.
+func DialSSHNode(cfg SSHNodeConfig) (*ssh.Client, error) {
+	host := strings.TrimSpace(cfg.Address)
+	if host == "" || strings.ContainsAny(host, "/?#@") { return nil, fmt.Errorf("invalid SSH node address") }
+	if cfg.Port < 1 || cfg.Port > 65535 { return nil, fmt.Errorf("invalid SSH port") }
+	if strings.TrimSpace(cfg.Username) == "" || len(cfg.PrivateKey) == 0 { return nil, fmt.Errorf("SSH username and private key are required") }
+	if cfg.KnownHosts == "" { cfg.KnownHosts = SSHKnownHostsPath() }
+	if cfg.Timeout <= 0 { cfg.Timeout = 12 * time.Second }
+	signer, err := ssh.ParsePrivateKey(cfg.PrivateKey)
+	if err != nil { return nil, fmt.Errorf("parse SSH private key: %w", err) }
+	hostKeyCallback, err := knownhosts.New(cfg.KnownHosts)
+	if err != nil { return nil, fmt.Errorf("load SSH known_hosts: %w", err) }
+	address := net.JoinHostPort(host, fmt.Sprint(cfg.Port))
+	conn, err := net.DialTimeout("tcp", address, cfg.Timeout)
+	if err != nil { return nil, fmt.Errorf("connect to SSH node: %w", err) }
+	_ = conn.SetDeadline(time.Now().Add(cfg.Timeout))
+	clientConn, chans, reqs, err := ssh.NewClientConn(conn, address, &ssh.ClientConfig{
+		User: cfg.Username, Auth: []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		HostKeyCallback: hostKeyCallback, Timeout: cfg.Timeout,
+	})
+	if err != nil { _ = conn.Close(); return nil, fmt.Errorf("authenticate SSH node: %w", err) }
+	return ssh.NewClient(clientConn, chans, reqs), nil
+}
+
 // RunSSHNodeCommand executes a panel-authored command on a remote node.
 // Host keys are verified against the configured known_hosts file; insecure
 // host-key bypasses are deliberately not supported.
