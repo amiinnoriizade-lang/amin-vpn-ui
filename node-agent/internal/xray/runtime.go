@@ -288,7 +288,7 @@ func (m *RuntimeManager) ListInbounds() ([]map[string]interface{}, error) {
 		byTag[stringField(in, "tag")] = in
 	}
 	deleted := make(map[string]bool, len(m.state.Deleted))
-	for _, item := range m.state.Deleted { deleted[runtimeKey(item.Tag, item.Email)] = true }
+	for _, item := range m.state.Deleted { deleted[runtimeKey(item.Tag, strings.ToLower(item.Email))] = true }
 	for _, in := range inbounds {
 		settings, ok := in["settings"].(map[string]interface{})
 		if !ok { continue }
@@ -296,7 +296,7 @@ func (m *RuntimeManager) ListInbounds() ([]map[string]interface{}, error) {
 		filtered := make([]interface{}, 0, len(clients))
 		for _, raw := range clients {
 			existing, ok := raw.(map[string]interface{})
-			if ok && deleted[runtimeKey(stringField(in,"tag"), stringField(existing,"email"))] { continue }
+			if ok && deleted[runtimeKey(stringField(in,"tag"), strings.ToLower(stringField(existing,"email")))] { continue }
 			filtered = append(filtered, raw)
 		}
 		settings["clients"] = filtered
@@ -386,11 +386,11 @@ func (m *RuntimeManager) AddClient(tag string, client map[string]interface{}) er
 	credential := stringField(client, credentialKey)
 	tombstoned := false
 	for _, deleted := range m.state.Deleted {
-		if deleted.Tag == tag && deleted.Email == email { tombstoned = true; break }
+		if deleted.Tag == tag && strings.EqualFold(deleted.Email, email) { tombstoned = true; break }
 	}
 	for _, raw := range staticClients {
 		if existing, ok := raw.(map[string]interface{}); ok {
-			if stringField(existing, "email") == email && !tombstoned { return errors.New("client email already exists in Xray config") }
+			if strings.EqualFold(stringField(existing, "email"), email) && !tombstoned { return errors.New("client email already exists in Xray config") }
 			if stringField(existing, credentialKey) == credential { return fmt.Errorf("client %s already exists in Xray config", credentialKey) }
 		}
 	}
@@ -473,7 +473,7 @@ func (m *RuntimeManager) DeleteClient(tag, email string) error {
 	}
 	if !found { return errors.New("client not found on this inbound") }
 	for _, deleted := range m.state.Deleted {
-		if deleted.Tag == tag && deleted.Email == email { return nil }
+		if deleted.Tag == tag && strings.EqualFold(deleted.Email, email) { return nil }
 	}
 	m.state.Deleted = append(m.state.Deleted, runtimeTombstone{Tag:tag, Email:email})
 	if err := m.saveLocked(); err != nil {
