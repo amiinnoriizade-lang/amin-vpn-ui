@@ -847,10 +847,21 @@ func (a *NodeController) nodeClientConfig(c *gin.Context) {
   }
   if security=="reality" {
    settings,_:=tlsCfg["settings"].(map[string]any)
-   for source,target:=range map[string]string{"publicKey":"pbk","shortId":"sid","spiderX":"spx"} {
-    val:=strings.TrimSpace(fmt.Sprint(settings[source])); if val!="" && val!="<nil>" { q.Set(target,val) }
+   publicKey:=nativeString(settings,"publicKey")
+   if publicKey=="" {
+    var keyErr error
+    publicKey,keyErr=realityPublicKey(nativeString(tlsCfg,"privateKey"))
+    if keyErr!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":keyErr.Error()}); return }
    }
-   if q.Get("pbk")=="" { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"Public Key واقعی Reality در تنظیمات Inbound پیدا نشد"}); return }
+   q.Set("pbk",publicKey)
+   shortID:=nativeString(settings,"shortId")
+   if shortID!="" { q.Set("sid",shortID) } else if shortID,ok:=nativeFirstStringIncludingEmpty(tlsCfg["shortIds"]); ok { q.Set("sid",shortID) }
+   if spiderX:=nativeString(settings,"spiderX"); spiderX!="" { q.Set("spx",spiderX) }
+   if q.Get("sni")=="" {
+    if sni:=nativeString(settings,"serverName"); sni!="" { q.Set("sni",sni) } else if sni:=nativeFirstString(tlsCfg["serverNames"]); sni!="" { q.Set("sni",sni) }
+   }
+   if q.Get("sni")=="" { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"هیچ serverName معتبری در Reality تنظیم نشده است"}); return }
+   if _,exists:=q["sid"]; !exists { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"هیچ shortId معتبری در Reality تنظیم نشده است"}); return }
   }
  }
  switch network {
