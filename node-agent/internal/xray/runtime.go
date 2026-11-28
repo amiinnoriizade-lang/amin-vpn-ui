@@ -371,3 +371,10 @@ func (m *RuntimeManager) DeleteClient(tag, email string) error {
 	}
 	return errors.New("client is not managed by AMIN runtime state; legacy static clients are not deleted by live API")
 }
+
+func (m *RuntimeManager) Close() error {
+	if m.api == nil {
+		return nil
+	}
+	return m.api.Close()
+}
