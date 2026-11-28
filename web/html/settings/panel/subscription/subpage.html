@@ -96,6 +96,27 @@
         background: rgba(0, 0, 0, 0.05);
         border-color: rgba(0, 0, 0, 0.14);
     }
+/* Customer-facing subscription experience */
+.subscription-page{min-height:100vh;background:radial-gradient(ellipse at 8% 4%,rgba(35,205,190,.22),transparent 34%),radial-gradient(ellipse at 94% 8%,rgba(139,92,246,.25),transparent 36%),linear-gradient(145deg,#101c35 0%,#172443 48%,#211b42 100%);padding-bottom:32px}
+.subscription-page .subscription-card{overflow:hidden;border:1px solid rgba(255,255,255,.14);border-radius:24px;background:rgba(255,255,255,.97);box-shadow:0 22px 65px rgba(4,12,30,.28)}
+.subscription-page .subscription-card>.ant-card-head{background:linear-gradient(110deg,#0f9f9a 0%,#3978d6 52%,#8556d8 100%);border-bottom:0}
+.subscription-page .subscription-card>.ant-card-head .ant-card-head-title,.subscription-page .subscription-card>.ant-card-head .ant-card-extra{color:#fff}
+.subscription-page .subscription-card>.ant-card-head .ant-tag{color:#164e63;background:rgba(255,255,255,.88);border:0;border-radius:20px}
+.subscription-page .qr-box .qr-tag{border:0;border-radius:20px;padding:4px 14px;color:#fff;background:linear-gradient(90deg,#0eaaa0,#5578e8);font-weight:700}
+.subscription-page .subscription-connection-heading{margin:8px 0 14px;color:#172554;font-size:19px;font-weight:800}
+.subscription-page .subscription-connection-card{height:100%;overflow:hidden;border:1px solid #dbeafe;border-radius:18px;background:linear-gradient(145deg,#fff 0%,#f0fdfa 54%,#f5f3ff 100%);box-shadow:0 10px 24px rgba(36,68,120,.09)}
+.subscription-page .subscription-connection-card .ant-card-head{color:#fff;background:linear-gradient(105deg,#0f9f9a,#4776df 65%,#8b5bd6);border-bottom:0}
+.subscription-page .subscription-connection-card .ant-card-head-title{color:#fff;font-weight:800}
+.subscription-page .connection-field{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 12px;margin:8px 0;border:1px solid #e1eaf5;border-radius:11px;background:rgba(255,255,255,.9)}
+.subscription-page .connection-field-label{display:block;margin-bottom:3px;color:#64748b;font-size:11px;font-weight:700}
+.subscription-page .connection-field-value{color:#172554;font-size:13px;font-weight:700;overflow-wrap:anywhere;user-select:text}
+.subscription-page .connection-copy{flex:0 0 auto;border:0;color:#fff;background:linear-gradient(135deg,#0d9488,#4f68df);box-shadow:0 4px 10px rgba(45,95,190,.2)}
+.subscription-page .connection-help{margin-top:12px;color:#64748b;font-size:12px;line-height:1.7}
+.subscription-page .ant-descriptions-bordered .ant-descriptions-item-label{background:#eff6ff;color:#334155;font-weight:700}
+.subscription-page .sub-config-btn{border-radius:12px;border:0;color:#fff;background:linear-gradient(100deg,#0d9488,#3978d6);box-shadow:0 6px 16px rgba(45,95,190,.2)}
+.subscription-page .sub-config-btn .anticon{color:#fff}
+@media(max-width:575px){.subscription-page .subscription-card{border-radius:17px}.subscription-page .subscription-card .ant-card-body{padding:14px}.subscription-page .subscription-connection-heading{font-size:17px}.subscription-page .connection-field{padding:10px}}
+
 </style>
 {{ template "page/head_end" .}}
 
@@ -235,7 +256,26 @@
                         </a-form-item>
                     </a-form>
 
-                    <br />
+                    <section v-if="connectionCards.length" class="subscription-connection-section">
+                        <div class="subscription-connection-heading">Connection details</div>
+                        <a-row type="flex" :gutter="[12,12]">
+                            <a-col v-for="(card, cardIndex) in connectionCards" :key="'connection-' + cardIndex" :xs="24" :md="12">
+                                <a-card class="subscription-connection-card" :bordered="false">
+                                    <template #title><span>[[ card.protocol ]]</span></template>
+                                    <div v-for="field in card.fields" :key="field.key" class="connection-field">
+                                        <div style="min-width:0;flex:1">
+                                            <span class="connection-field-label">[[ field.label ]]</span>
+                                            <span class="connection-field-value">[[ field.value ]]</span>
+                                        </div>
+                                        <a-button class="connection-copy" shape="circle" size="small" icon="copy"
+                                            :aria-label="'Copy ' + field.label" @click="copy(field.value)"></a-button>
+                                    </div>
+                                    <div class="connection-help">Keep these credentials private. OpenVPN profile downloads are available below.</div>
+                                </a-card>
+                            </a-col>
+                        </a-row>
+                    </section>
+                    <br v-if="links.length" />
                     <div v-for="(link, idx) in links" :key="link"
                         style="position: relative; margin-bottom: 20px; text-align: center;">
                         <div class="qr-box" style="display: inline-block; width: 100%; max-width: 100%;">
