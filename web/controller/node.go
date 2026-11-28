@@ -458,6 +458,7 @@ func syncSSHNodeSnapshots(ctx context.Context, n model.Node) error {
   inboundRows=append(inboundRows,model.NodeInboundSnapshot{NodeID:n.Id,RemoteID:remoteID,Tag:ib.Tag,RemoteTag:ib.Tag,Remark:ib.Tag,Protocol:ib.Protocol,Listen:ib.Listen,Port:ib.Port,Enable:true,LastSyncAt:now})
   var settings struct { Clients []map[string]any `json:"clients"` }
   if len(ib.Settings)>0 { if err=json.Unmarshal(ib.Settings,&settings);err!=nil { return fmt.Errorf("decode clients in %s: %w",ib.Tag,err) } }
+  inboundRows[len(inboundRows)-1].ClientCount=len(settings.Clients)
   for _,cl:=range settings.Clients {
    email:=strings.ToLower(strings.TrimSpace(fmt.Sprint(cl["email"])))
    if email=="" || email=="<nil>" { continue }
