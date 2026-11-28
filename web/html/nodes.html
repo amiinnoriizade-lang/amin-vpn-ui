@@ -1,5 +1,15 @@
 {{ template "page/head_start" .}}
 {{ template "page/head_end" .}}
+<style>
+.amin-agent-road-banner{position:relative;display:flex;flex-direction:column;gap:8px;overflow:hidden;padding:13px 14px 8px;border:1px solid rgba(98,220,211,.28);border-radius:15px;background:linear-gradient(115deg,#102b43,#183b58 55%,#332c62);box-shadow:0 9px 24px rgba(0,0,0,.2)}
+.amin-agent-road-copy{position:relative;z-index:1;display:flex;flex-direction:column;gap:3px;color:#f5fbff;line-height:1.55}
+.amin-agent-road-kicker{color:#8ce8dc;font-size:9px;font-weight:800;letter-spacing:1.8px}
+.amin-agent-road-copy strong{font-size:14px;font-weight:800}
+.amin-agent-road-copy small{color:#c3d6e8;font-size:11px}
+.amin-agent-road-art{display:block;width:100%;height:auto;max-height:126px;border-radius:11px}
+@media(max-width:520px){.amin-agent-road-banner{padding:10px}.amin-agent-road-art{max-height:110px}.amin-agent-road-copy small{font-size:10px}}
+</style>
+
 {{ template "page/body_start" .}}
 {{ template "page/shell_start" . }}
 <a-spin :spinning="loading">
@@ -27,16 +37,18 @@
             <div v-if="n.latencyMs" style="font-size:11px;color:var(--muted)">[[ n.latencyMs ]] ms</div>
           </template>
           <template slot="nodeMetrics" slot-scope="text,n">
-            <div>CPU: [[ Number(n.cpuPct || 0).toFixed(1) ]]%</div>
-            <div>RAM: [[ Number(n.memPct || 0).toFixed(1) ]]%</div>
+            <div v-if="!n.agentMode">CPU: [[ Number(n.cpuPct || 0).toFixed(1) ]]%</div>
+            <div v-if="!n.agentMode">RAM: [[ Number(n.memPct || 0).toFixed(1) ]]%</div>
+            <div v-if="n.agentMode">Agent: [[ n.agentVersion || '—' ]]</div>
             <div>↓ [[ formatRate(n.netDown) ]] / ↑ [[ formatRate(n.netUp) ]]</div>
             <div>Inbounds: [[ n.inboundCount || 0 ]] · Users: [[ n.clientCount || 0 ]]</div>
             <div v-if="n.lastSyncAt" style="font-size:11px;color:var(--muted)">Sync: [[ new Date(n.lastSyncAt).toLocaleTimeString() ]]</div>
             <div v-if="n.lastSyncError" style="font-size:11px;color:#cf1322">[[ n.lastSyncError ]]</div>
           </template>
           <template slot="nodeVersion" slot-scope="text,n">
-            <div>Panel: [[ n.panelVersion || '—' ]]</div>
-            <div>Xray: [[ n.xrayVersion || '—' ]]</div>
+            <div v-if="n.agentMode">AMIN Agent: [[ n.agentVersion || '—' ]]</div>
+            <div v-else>Panel: [[ n.panelVersion || '—' ]]</div>
+            <div>Xray: [[ n.agentMode ? (n.xrayState || 'managed') : (n.xrayVersion || '—') ]]</div>
           </template>
           <template slot="nodeEnabled" slot-scope="text,n">
             <a-switch :checked="n.enable" @change="v => setEnabled(n,v)" />
@@ -44,6 +56,7 @@
           <template slot="nodeActions" slot-scope="text,n">
             <a-space>
               <a-tooltip title="تست اتصال"><a-button size="small" icon="thunderbolt" :loading="probingId===n.id" @click="probe(n)"></a-button></a-tooltip>
+              <a-tooltip title="نمایش Inboundها و کاربران"><a-button size="small" icon="unordered-list" @click="showNode(n)"></a-button></a-tooltip>
               <a-tooltip title="ویرایش"><a-button size="small" icon="edit" @click="openEdit(n)"></a-button></a-tooltip>
               <a-tooltip title="حذف"><a-button size="small" type="danger" icon="delete" @click="removeNode(n)"></a-button></a-tooltip>
             </a-space>
@@ -55,51 +68,235 @@
       <a-alert type="info" show-icon message="اطلاعات امنیتی"
         description="توکن API در پاسخ سرور و جدول نمایش داده نمی‌شود. برای تغییر توکن، هنگام ویرایش مقدار جدید وارد کنید؛ خالی گذاشتن آن، توکن قبلی را حفظ می‌کند."></a-alert>
     </a-col>
+    <a-col :span="24" v-if="selectedNode">
+      <a-card :title="'Inboundهای نود: '+selectedNode.name">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+          <a-button icon="reload" :loading="snapshotLoading" @click="showNode(selectedNode)">بروزرسانی Inboundها</a-button>
+          <a-button v-if="selectedNode.agentMode" type="primary" icon="user-add" @click="openCreateClient(null)">ساخت کاربر با پورت دلخواه</a-button>
+          <a-tag color="blue">[[ (nodeSnapshot.inbounds || []).length ]] Inbound</a-tag>
+          <a-tag color="green">[[ (nodeSnapshot.clients || []).length ]] کاربر</a-tag>
+        </div>
+        <a-alert v-if="selectedNode.agentMode" type="info" show-icon
+          message="قابلیت‌ها و محدودیت‌های Agent"
+          description="ساخت و حذف کاربر و تولید لینک اتصال پشتیبانی می‌شود. برای دریافت لینک، آدرس عمومی اتصال را در تنظیمات نود وارد کنید. محدودیت حجم، تاریخ انقضا و ویرایش کاربر هنوز در API Agent پیاده‌سازی نشده‌اند." style="margin-bottom:12px"/>
+        <a-table :columns="inboundColumns" :data-source="nodeSnapshot.inbounds || []" :row-key="r => r.id" :pagination="false" :scroll="{x:700}" size="small">
+          <template slot="inboundTag" slot-scope="text,ib">
+            <div style="font-weight:700">[[ ib.tag || ib.remoteTag || ib.remark ]]</div>
+            <small style="color:var(--muted)">[[ ib.listen || '0.0.0.0' ]]:[[ ib.port ]]</small>
+          </template>
+          <template slot="inboundActions" slot-scope="text,ib">
+            <a-button size="small" type="primary" icon="user-add" @click="openCreateClient(ib)">ساخت کاربر</a-button>
+          </template>
+        </a-table>
+        <a-divider>کاربران این نود</a-divider>
+        <a-table :columns="nodeClientColumns" :data-source="nodeSnapshot.clients || []" :row-key="r => r.email" :pagination="{pageSize:10}" size="small">
+          <template slot="clientEnabled" slot-scope="text,cl">
+            <a-tag :color="cl.enable ? 'green' : 'red'">[[ cl.enable ? 'فعال' : 'غیرفعال' ]]</a-tag>
+          </template>
+          <template slot="clientActions" slot-scope="text,cl">
+            <a-popconfirm title="این کاربر از تمام Inboundهای نود حذف شود؟" ok-text="حذف" cancel-text="انصراف" @confirm="deleteNodeClient(cl)">
+              <a-button size="small" type="danger" icon="delete">حذف</a-button>
+            </a-popconfirm>
+          </template>
+        </a-table>
+      </a-card>
+    </a-col>
   </a-row>
 </a-spin>
-<a-modal :visible="modalVisible" :title="editing ? 'ویرایش نود' : 'افزودن نود'" :confirm-loading="saving"
-  @ok="saveNode" @cancel="modalVisible=false" ok-text="ذخیره" cancel-text="انصراف" :width="650">
-  <a-form-model :model="form" :label-col="{span:7}" :wrapper-col="{span:17}">
-    <a-form-model-item label="نام نود" required><a-input v-model="form.name" placeholder="Germany-1"/></a-form-model-item>
-    <a-form-model-item label="توضیحات"><a-input v-model="form.remark"/></a-form-model-item>
-    <a-row :gutter="8">
-      <a-col :span="8"><a-form-model-item label="پروتکل"><a-select v-model="form.scheme"><a-select-option value="https">HTTPS</a-select-option><a-select-option value="http">HTTP</a-select-option></a-select></a-form-model-item></a-col>
-      <a-col :span="10"><a-form-model-item label="آدرس"><a-input v-model="form.address" placeholder="node.example.com"/></a-form-model-item></a-col>
-      <a-col :span="6"><a-form-model-item label="پورت"><a-input-number v-model="form.port" :min="1" :max="65535" style="width:100%"/></a-form-model-item></a-col>
-    </a-row>
-    <a-form-model-item label="Base Path"><a-input v-model="form.basePath" placeholder="/"/></a-form-model-item>
-    <a-form-model-item :label="editing ? 'توکن جدید (اختیاری)' : 'API Token'"><a-input-password v-model="form.apiToken" :placeholder="editing ? 'خالی = حفظ توکن فعلی' : 'توکن دسترسی پنل سنایی'"/></a-form-model-item>
-    <a-form-model-item label="اعتبار TLS"><a-select v-model="form.tlsVerifyMode"><a-select-option value="system">اعتبارسنجی استاندارد</a-select-option><a-select-option value="insecure">بدون اعتبارسنجی (ناامن)</a-select-option><a-select-option value="pinned">گواهی Pin شده</a-select-option></a-select></a-form-model-item>
-    <a-form-model-item v-if="form.tlsVerifyMode==='pinned'" label="SHA-256 Fingerprint"><a-input v-model="form.pinnedCertSha256"/></a-form-model-item>
-    <a-form-model-item label="Inbound Sync"><a-select v-model="form.inboundSyncMode"><a-select-option value="all">همه Inboundها</a-select-option><a-select-option value="tag">بر اساس Tag</a-select-option><a-select-option value="none">غیرفعال</a-select-option></a-select></a-form-model-item>
-    <a-form-model-item v-if="form.inboundSyncMode==='tag'" label="Inbound Tags"><a-input v-model="form.inboundTags" placeholder="tag1,tag2"/></a-form-model-item>
-    <a-form-model-item label="وضعیت"><a-switch v-model="form.enable" checked-children="فعال" un-checked-children="خاموش"/></a-form-model-item>
-    <a-form-model-item label="شبکه خصوصی"><a-switch v-model="form.allowPrivateAddress"/></a-form-model-item>
+<a-modal :visible="clientModalVisible" title="ساخت کاربر روی نود" :confirm-loading="clientSaving"
+  :ok-button-props="{disabled: clientForm.mode==='new' ? (!clientForm.port || clientForm.port<1 || clientForm.port>65535) : (!clientForm.inboundId || !selectableInbounds.length)}"
+  @ok="createNodeClient" @cancel="clientModalVisible=false" ok-text="ساخت کاربر" cancel-text="انصراف">
+  <a-form-model :model="clientForm" :label-col="{span:6}" :wrapper-col="{span:18}">
+    <a-form-model-item label="روش ساخت">
+      <a-radio-group v-model="clientForm.mode" @change="clientError=''">
+        <a-radio value="existing">Inbound موجود</a-radio>
+        <a-radio value="new">پورت دلخواه جدید</a-radio>
+      </a-radio-group>
+    </a-form-model-item>
+    <template v-if="clientForm.mode==='existing'">
+      <a-form-model-item label="انتخاب Inbound" required>
+        <a-select v-model="clientForm.inboundId" placeholder="یک Inbound انتخاب کنید" @change="onClientInboundChange">
+          <a-select-option v-for="ib in selectableInbounds" :key="ib.remoteId" :value="ib.remoteId">[[ inboundDisplay(ib) ]]</a-select-option>
+        </a-select>
+      </a-form-model-item>
+    </template>
+    <template v-else>
+      <a-form-model-item label="پورت دلخواه" required>
+        <a-input-number v-model="clientForm.port" :min="1" :max="65535" :step="1" style="width:100%" placeholder="مثلاً 443 یا 2053"/>
+      </a-form-model-item>
+      <a-form-model-item label="پروتکل">
+        <a-select v-model="clientForm.protocol">
+          <a-select-option value="vless">VLESS</a-select-option>
+          <a-select-option value="vmess">VMess</a-select-option>
+          <a-select-option value="trojan">Trojan</a-select-option>
+        </a-select>
+      </a-form-model-item>
+      <a-alert type="info" show-icon message="یک Inbound جدید با TCP و بدون TLS ساخته می‌شود و روی تمام رابط‌های شبکه گوش می‌دهد. پورت باید در فایروال سرور و پنل ارائه‌دهنده نیز باز باشد."/>
+    </template>
+    <a-form-model-item label="نام کاربری" required><a-input v-model="clientForm.email" placeholder="amin-user-01"/></a-form-model-item>
+    <a-form-model-item label="Flow" v-if="clientForm.protocol==='vless' && clientForm.mode==='existing'"><a-select v-model="clientForm.flow" allow-clear><a-select-option value="">بدون Flow</a-select-option><a-select-option value="xtls-rprx-vision">xtls-rprx-vision</a-select-option></a-select></a-form-model-item>
+    <a-alert v-if="clientForm.mode==='existing' && !selectableInbounds.length" type="warning" show-icon message="Inbound قابل استفاده‌ای پیدا نشد؛ ابتدا فهرست را بروزرسانی کنید یا پورت جدید بسازید."/>
+    <a-alert v-if="clientError" type="error" show-icon :message="clientError" style="margin-top:10px"/>
   </a-form-model>
+</a-modal>
+<a-modal :visible="credentialModalVisible" title="اطلاعات اتصال کاربر جدید" @ok="credentialModalVisible=false" @cancel="credentialModalVisible=false" ok-text="بستن" :cancel-button-props="{style:{display:'none'}}">
+  <p>نام کاربری: <b>[[ createdEmail ]]</b></p>
+  <p>شناسه / رمز تولیدشده:</p>
+  <a-input :value="createdCredential" readonly/>
+  <a-button icon="copy" style="margin-top:8px" @click="copyCreatedCredential">کپی شناسه / رمز</a-button>
+  <a-divider>کانفیگ اتصال</a-divider>
+  <a-spin :spinning="configLoading">
+    <a-alert v-if="createdLink" type="success" show-icon message="کانفیگ با موفقیت از تنظیمات زنده Xray ساخته شد" style="margin-bottom:8px"/>
+    <a-textarea v-if="createdLink" :value="createdLink" :rows="4" readonly/>
+    <a-button v-if="createdLink" icon="copy" type="primary" style="margin-top:8px" @click="copyCreatedLink">کپی کانفیگ</a-button>
+    <a-alert v-if="configError" type="error" show-icon :message="configError" style="margin-top:8px"/>
+    <a-button v-if="configError" icon="reload" :loading="configLoading" style="margin-top:8px" @click="fetchCreatedConfig">تلاش مجدد برای دریافت کانفیگ</a-button>
+  </a-spin>
+</a-modal>
+<a-modal :visible="modalVisible" :title="editing ? 'ویرایش نود' : 'افزودن نود'" :confirm-loading="saving"
+  @ok="saveNode" @cancel="modalVisible=false" ok-text="ذخیره" cancel-text="انصراف" :width="650"
+  :body-style="{maxHeight:'65vh',overflowY:'auto',padding:'12px'}">
+  <div style="display:flex;flex-direction:column;gap:12px;min-width:0;color:var(--text)">
+    <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <strong>نوع نود</strong>
+      <span style="display:flex;align-items:center;gap:8px">
+        <span>سنایی</span>
+        <input type="checkbox" :checked="form.agentMode" @change="toggleNodeType($event.target.checked)"/>
+        <span>AMIN Agent</span>
+      </span>
+    </label>
+    <div v-if="form.agentMode" class="amin-agent-road-banner" role="img" aria-label="خودرویی روی جاده پرپیچ‌وخم، نماد مسیر امن ارتباط با AMIN Agent">
+      <div class="amin-agent-road-copy">
+        <span class="amin-agent-road-kicker">AMIN SECURE ROUTE</span>
+        <strong>مسیر امن ارتباط با نود</strong>
+        <small>Agent از تونل خصوصی متصل می‌شود؛ پورت 8787 را عمومی نکنید.</small>
+      </div>
+      <svg class="amin-agent-road-art" viewBox="0 0 560 150" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <defs>
+          <linearGradient id="aminRoadSky" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#123d55"/><stop offset=".55" stop-color="#176b78"/><stop offset="1" stop-color="#55458f"/>
+          </linearGradient>
+          <linearGradient id="aminRoadCar" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#ffe082"/><stop offset=".55" stop-color="#ff9f43"/><stop offset="1" stop-color="#ff5d73"/>
+          </linearGradient>
+        </defs>
+        <rect width="560" height="150" rx="16" fill="url(#aminRoadSky)"/>
+        <circle cx="488" cy="27" r="13" fill="#ffe7a3" opacity=".9"/>
+        <path d="M0 111 Q74 67 142 104 T282 103 T420 93 T560 109 V150 H0Z" fill="#0c4e60" opacity=".62"/>
+        <path d="M-15 132 C65 132 73 48 158 48 S244 130 322 130 S407 38 488 38 S535 65 575 65" fill="none" stroke="#09283c" stroke-width="42" stroke-linecap="round"/>
+        <path d="M-15 132 C65 132 73 48 158 48 S244 130 322 130 S407 38 488 38 S535 65 575 65" fill="none" stroke="#d8e4e9" stroke-width="2.5" stroke-linecap="round" opacity=".75"/>
+        <path d="M-15 132 C65 132 73 48 158 48 S244 130 322 130 S407 38 488 38 S535 65 575 65" fill="none" stroke="#f8d77b" stroke-width="2.5" stroke-dasharray="10 13" stroke-linecap="round"/>
+        <g transform="translate(284 83) rotate(-8)">
+          <ellipse cx="0" cy="24" rx="43" ry="8" fill="#071d2c" opacity=".35"/>
+          <path d="M-38 10 L-30 -4 Q-25 -14 -12 -15 L13 -15 Q25 -14 32 -2 L41 8 Q46 12 43 20 L-42 20 Q-47 15 -38 10Z" fill="url(#aminRoadCar)" stroke="#fff0c2" stroke-width="1.5"/>
+          <path d="M-23 -4 Q-18 -12 -10 -12 H10 Q19 -11 25 -2 L-23 -2Z" fill="#b9f1f0" stroke="#e9ffff" stroke-width="1.2"/>
+          <path d="M-4 -11 V-2" stroke="#fff" stroke-width="1.2" opacity=".8"/>
+          <path d="M-43 9 L-34 7 M39 9 L45 7" stroke="#fff4c4" stroke-width="3" stroke-linecap="round"/>
+          <circle cx="-27" cy="19" r="8" fill="#102b3e" stroke="#d8e7ed" stroke-width="2"/>
+          <circle cx="28" cy="19" r="8" fill="#102b3e" stroke="#d8e7ed" stroke-width="2"/>
+          <circle cx="-27" cy="19" r="3" fill="#a9c5d0"/><circle cx="28" cy="19" r="3" fill="#a9c5d0"/>
+        </g>
+        <g fill="#c6fff0"><circle cx="76" cy="35" r="3"/><circle cx="92" cy="25" r="2"/><circle cx="445" cy="112" r="3"/></g>
+        <path d="M42 20 l5 9 10 2 -10 3 -5 9 -3 -9 -9 -3 9 -2Z" fill="#fff1b8" opacity=".9"/>
+      </svg>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px">
+      <label style="display:block;min-width:0">نام نود *
+        <input class="ant-input" v-model="form.name" placeholder="Germany-1" style="display:block;width:100%;margin-top:5px"/>
+      </label>
+      <label style="display:block;min-width:0">توضیحات
+        <input class="ant-input" v-model="form.remark" style="display:block;width:100%;margin-top:5px"/>
+      </label>
+    </div>
+    <div style="display:grid;grid-template-columns:minmax(75px,.8fr) minmax(0,1.5fr) minmax(80px,.8fr);gap:8px">
+      <label style="display:block;min-width:0">پروتکل
+        <select class="ant-input" v-model="form.scheme" style="display:block;width:100%;margin-top:5px">
+          <option value="https">HTTPS</option><option value="http">HTTP</option>
+        </select>
+      </label>
+      <label style="display:block;min-width:0">آدرس
+        <input class="ant-input" v-model="form.address" :placeholder="form.agentMode ? '127.0.0.1' : 'node.example.com'" style="display:block;width:100%;margin-top:5px"/>
+      </label>
+      <label style="display:block;min-width:0">پورت
+        <input class="ant-input" type="number" min="1" max="65535" v-model.number="form.port" style="display:block;width:100%;margin-top:5px"/>
+      </label>
+    </div>
+    <label v-if="form.agentMode" style="display:block;border:1px solid var(--border);border-radius:8px;padding:10px;background:var(--surface-2)">
+      <strong>آدرس عمومی اتصال کاربران (الزامی برای ساخت کانفیگ)</strong>
+      <input class="ant-input" v-model="form.publicAddress" placeholder="IP یا دامنه عمومی سرور مقصد؛ نه 127.0.0.1" style="display:block;width:100%;margin-top:5px"/>
+      <small style="display:block;margin-top:5px;color:var(--muted)">این آدرس داخل لینک VLESS/VMess/Trojan قرار می‌گیرد. آدرس بالا صرفاً مسیر مدیریتی Agent است و ممکن است 127.0.0.1 باشد.</small>
+    </label>
+    <label style="display:block">Base Path
+      <input class="ant-input" v-model="form.basePath" :placeholder="form.agentMode ? 'خالی بگذارید' : '/'" style="display:block;width:100%;margin-top:5px"/>
+    </label>
+    <label style="display:block">[[ editing ? 'توکن جدید (اختیاری)' : 'API Token' ]]
+      <input class="ant-input" type="password" v-model="form.apiToken" :placeholder="editing ? 'خالی = حفظ توکن فعلی' : (form.agentMode ? 'AMIN_NODE_TOKEN' : 'توکن دسترسی پنل سنایی')" style="display:block;width:100%;margin-top:5px"/>
+    </label>
+    <label style="display:block">اعتبار TLS
+      <select class="ant-input" v-model="form.tlsVerifyMode" style="display:block;width:100%;margin-top:5px">
+        <option value="system">اعتبارسنجی استاندارد</option>
+        <option value="insecure">بدون اعتبارسنجی (ناامن)</option>
+        <option value="pinned">گواهی Pin شده</option>
+      </select>
+    </label>
+    <label v-if="form.tlsVerifyMode==='pinned'" style="display:block">SHA-256 Fingerprint
+      <input class="ant-input" v-model="form.pinnedCertSha256" style="display:block;width:100%;margin-top:5px"/>
+    </label>
+    <label style="display:block">Inbound Sync
+      <select class="ant-input" v-model="form.inboundSyncMode" style="display:block;width:100%;margin-top:5px">
+        <option value="all">همه Inboundها</option>
+        <option value="tag">بر اساس Tag</option>
+        <option value="none">غیرفعال</option>
+      </select>
+    </label>
+    <label v-if="form.inboundSyncMode==='tag'" style="display:block">Inbound Tags
+      <input class="ant-input" v-model="form.inboundTags" placeholder="tag1,tag2" style="display:block;width:100%;margin-top:5px"/>
+    </label>
+    <div style="display:flex;gap:24px;flex-wrap:wrap">
+      <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" v-model="form.enable"/> وضعیت فعال</label>
+      <label style="display:flex;align-items:center;gap:8px"><input type="checkbox" v-model="form.allowPrivateAddress"/> اجازه آدرس خصوصی</label>
+    </div>
+  </div>
 </a-modal>
 {{ template "page/shell_end" . }}
 {{ template "page/body_scripts" . }}
 {{ template "component/aSidebar" . }}
 {{ template "component/aThemeSwitch" . }}
 <script>
+const inboundColumns = [
+ {title:'Inbound / Tag',key:'tag',scopedSlots:{customRender:'inboundTag'},width:230},
+ {title:'Protocol',dataIndex:'protocol',width:100},
+ {title:'Port',dataIndex:'port',width:80},
+ {title:'کاربران',dataIndex:'clientCount',width:80},
+ {title:'عملیات',key:'actions',scopedSlots:{customRender:'inboundActions'},width:130}
+];
+const nodeClientColumns = [
+ {title:'نام کاربری',dataIndex:'email',key:'email'},
+ {title:'وضعیت',key:'enable',scopedSlots:{customRender:'clientEnabled'},width:100},
+ {title:'حجم مصرفی',customRender:(v,r)=>((Number(r.up||0)+Number(r.down||0))/1073741824).toFixed(3)+' GB',width:120},
+ {title:'عملیات',key:'actions',scopedSlots:{customRender:'clientActions'},width:100}
+];
 const nodeColumns = [
  {title:'نود',key:'name',scopedSlots:{customRender:'nodeName'},width:190},
  {title:'وضعیت',key:'status',scopedSlots:{customRender:'nodeStatus'},width:100,align:'center'},
  {title:'منابع',key:'metrics',scopedSlots:{customRender:'nodeMetrics'},width:110},
  {title:'نسخه‌ها',key:'versions',scopedSlots:{customRender:'nodeVersion'},width:150},
  {title:'فعال',key:'enable',scopedSlots:{customRender:'nodeEnabled'},width:70,align:'center'},
- {title:'عملیات',key:'actions',scopedSlots:{customRender:'nodeActions'},width:130,align:'center'}
+ {title:'عملیات',key:'actions',scopedSlots:{customRender:'nodeActions'},width:170,align:'center'}
 ];
-function emptyNode(){return {name:'',remark:'',scheme:'https',address:'',port:2053,basePath:'',apiToken:'',enable:true,allowPrivateAddress:false,tlsVerifyMode:'system',pinnedCertSha256:'',inboundSyncMode:'all',inboundTags:'',outboundTag:'',guid:'',parentGuid:'',transitive:false};}
+function emptyNode(){return {agentMode:false,name:'',remark:'',scheme:'https',address:'',publicAddress:'',port:2053,basePath:'',apiToken:'',enable:true,allowPrivateAddress:false,tlsVerifyMode:'system',pinnedCertSha256:'',inboundSyncMode:'all',inboundTags:'',outboundTag:'',guid:'',parentGuid:'',transitive:false};}
 const app = new Vue({
  delimiters:['[[',']]'], mixins:[MediaQueryMixin], el:'#app',
- data:{themeSwitcher,pageTitle:'Nodes',pageClass:'',loading:false,saving:false,probingId:null,nodes:[],columns:nodeColumns,modalVisible:false,editing:false,editingId:null,form:emptyNode()},
- computed:{selectedClientInbound(){return this.clientInbounds.find(x=>x.remoteId===this.clientForm.inboundId)||null;}},
+ data:{themeSwitcher,pageTitle:'Nodes',pageClass:'',loading:false,saving:false,probingId:null,nodes:[],columns:nodeColumns,modalVisible:false,editing:false,editingId:null,form:emptyNode(),selectedNode:null,nodeSnapshot:{inbounds:[],clients:[]},snapshotLoading:false,clientModalVisible:false,clientSaving:false,clientError:'',credentialModalVisible:false,createdEmail:'',createdCredential:'',createdLink:'',configError:'',configLoading:false,clientForm:{mode:'existing',inboundId:null,port:2053,email:'',flow:'',protocol:'vless'}},
+ computed:{
+  selectableInbounds(){return (this.nodeSnapshot.inbounds||[]).filter(ib=>ib.enable!==false&&['vless','vmess','trojan'].includes(String(ib.protocol||'').toLowerCase()));}
+ },
  methods:{
   async loadNodes(){this.loading=true;const r=await HttpUtil.get('/panel/api/nodes/list');this.loading=false;if(r&&r.success)this.nodes=r.obj||[];},
   statusColor(n){return n.status==='online'?'green':n.status==='offline'?'red':'orange';},
   statusText(n){return n.status==='online'?'آنلاین':n.status==='offline'?'آفلاین':'نامشخص';},
   formatRate(v){v=Number(v||0);if(v<1024)return v+' B/s';if(v<1048576)return (v/1024).toFixed(1)+' KB/s';return (v/1048576).toFixed(2)+' MB/s';},
+  toggleNodeType(v){this.form.agentMode=v;if(v){this.form.port=18787;this.form.scheme='http';this.form.basePath='';this.form.allowPrivateAddress=true;}else{this.form.port=2053;this.form.scheme='https';}},
   openAdd(){this.editing=false;this.editingId=null;this.form=emptyNode();this.modalVisible=true;},
   openEdit(n){this.editing=true;this.editingId=n.id;this.form=Object.assign(emptyNode(),n,{apiToken:''});this.modalVisible=true;},
   async saveNode(){
@@ -109,6 +306,63 @@ const app = new Vue({
    const r=await HttpUtil.post(url,payload);this.saving=false;
    if(r&&r.success){this.$message.success('اطلاعات نود ذخیره شد');this.modalVisible=false;await this.loadNodes();}
   },
+  async showNode(n){this.selectedNode=n;this.nodeSnapshot={inbounds:[],clients:[]};this.snapshotLoading=true;const r=await HttpUtil.get('/panel/api/nodes/snapshot/'+n.id);this.snapshotLoading=false;if(r&&r.success)this.nodeSnapshot=r.obj||{inbounds:[],clients:[]};else this.$message.warning((r&&r.msg)||'دریافت Inboundها ناموفق بود');},
+  inboundDisplay(ib){return (ib.tag||ib.remoteTag||ib.remark||'Inbound')+' · '+String(ib.protocol||'').toUpperCase()+' · '+ib.port;},
+  openCreateClient(ib){this.clientError='';const isNew=!ib&&!!(this.selectedNode&&this.selectedNode.agentMode);this.clientForm={mode:isNew?'new':'existing',inboundId:ib?ib.remoteId:null,port:2053,email:'',flow:'',protocol:ib?String(ib.protocol||'').toLowerCase():'vless'};this.clientModalVisible=true;},
+  onClientInboundChange(id){const ib=this.selectableInbounds.find(x=>Number(x.remoteId)===Number(id));this.clientForm.protocol=ib?String(ib.protocol||'').toLowerCase():'';this.clientForm.flow='';this.clientError='';},
+  responseMessage(value){const data=value&&value.response&&value.response.data?value.response.data:value;return (data&&(data.msg||data.message||data.error))||(value&&value.message)||'خطای نامشخص هنگام ساخت کاربر';},
+  async createNodeClient(){
+   const email=String(this.clientForm.email||'').trim();
+   if(!email){this.clientError='نام کاربری را وارد کنید';return;}
+   if(!this.selectedNode){this.clientError='نودی برای ساخت کاربر انتخاب نشده است.';return;}
+   const creatingNew=this.clientForm.mode==='new';
+   const inbound=creatingNew?null:this.selectableInbounds.find(x=>Number(x.remoteId)===Number(this.clientForm.inboundId));
+   if(!creatingNew&&!inbound){this.clientError='Inbound انتخاب‌شده معتبر نیست؛ فهرست را بروزرسانی و دوباره انتخاب کنید.';return;}
+   if(creatingNew&&(!Number.isInteger(Number(this.clientForm.port))||Number(this.clientForm.port)<1||Number(this.clientForm.port)>65535)){this.clientError='پورت باید عددی بین 1 تا 65535 باشد.';return;}
+   this.clientSaving=true;this.clientError='';
+   try{
+    const payload={email:email,totalGB:0,months:0,days:0,flow:this.clientForm.flow||''};
+    if(creatingNew){payload.createInbound=true;payload.port=Number(this.clientForm.port);payload.protocol=this.clientForm.protocol||'vless';}
+    else{payload.inboundId=this.clientForm.inboundId;}
+    const r=await HttpUtil.post('/panel/api/nodes/createClient/'+this.selectedNode.id,payload);
+    if(!r||!r.success)throw new Error(this.responseMessage(r));
+    this.createdEmail=email;
+    this.createdCredential=(r.obj&&(r.obj.credential||r.obj.id||r.obj.password))||'';
+    this.createdLink='';
+    this.configError='';
+    this.clientModalVisible=false;
+    this.credentialModalVisible=true;
+    this.$message.success('کاربر در Xray ساخته و تأیید شد');
+    await this.fetchCreatedConfig();
+    await this.showNode(this.selectedNode);
+   }catch(e){
+    this.clientError=this.responseMessage(e);
+    const data=e&&e.response&&e.response.data?e.response.data:e;
+    if(creatingNew&&data&&data.obj&&data.obj.inboundId){
+     const created=data.obj;
+     await this.showNode(this.selectedNode);
+     this.clientForm.mode='existing';
+     this.clientForm.inboundId=created.inboundId;
+     const ib=this.selectableInbounds.find(x=>Number(x.remoteId)===Number(created.inboundId));
+     this.clientForm.protocol=ib?String(ib.protocol||'').toLowerCase():this.clientForm.protocol;
+     this.clientError=this.responseMessage(e)+'؛ Inbound ساخته‌شده در فهرست موجود است و می‌توانید ساخت کاربر را روی آن تکرار کنید.';
+    }
+    this.$message.error(this.clientError);
+   }finally{this.clientSaving=false;}
+  },
+  async fetchCreatedConfig(){
+   if(!this.selectedNode||!this.createdEmail)return;
+   this.configLoading=true;this.configError='';this.createdLink='';
+   try{
+    const r=await HttpUtil.get('/panel/api/nodes/clients/config/'+this.selectedNode.id+'/'+encodeURIComponent(this.createdEmail));
+    if(!r||!r.success||!r.obj||!r.obj.link)throw new Error(this.responseMessage(r)||'سرور لینک اتصال را برنگرداند');
+    this.createdLink=r.obj.link;
+   }catch(e){this.configError=this.responseMessage(e);}
+   finally{this.configLoading=false;}
+  },
+  async copyCreatedLink(){if(!this.createdLink)return;try{await navigator.clipboard.writeText(this.createdLink);this.$message.success('کانفیگ اتصال کپی شد');}catch(e){this.$message.warning('کپی خودکار در این مرورگر در دسترس نیست؛ متن کانفیگ را انتخاب و کپی کنید.');}},
+  async copyCreatedCredential(){if(!this.createdCredential)return;try{await navigator.clipboard.writeText(this.createdCredential);this.$message.success('شناسه / رمز کپی شد');}catch(e){this.$message.warning('کپی خودکار در این مرورگر در دسترس نیست؛ متن را انتخاب و کپی کنید.');}},
+  async deleteNodeClient(cl){const r=await HttpUtil.post('/panel/api/nodes/clients/delete/'+this.selectedNode.id+'/'+encodeURIComponent(cl.email),{});if(r&&r.success){this.$message.success('کاربر از نود حذف شد');await this.showNode(this.selectedNode);}else this.$message.error((r&&r.msg)||'حذف کاربر ناموفق بود');},
   async probe(n){this.probingId=n.id;const r=await HttpUtil.post('/panel/api/nodes/probe/'+n.id,{});this.probingId=null;if(r&&r.obj){const i=this.nodes.findIndex(x=>x.id===n.id);if(i>=0)this.$set(this.nodes,i,r.obj);}if(r&&r.success)this.$message.success('اتصال نود برقرار است');else this.$message.warning((r&&r.msg)||'اتصال نود برقرار نشد');},
   async setEnabled(n,v){const r=await HttpUtil.post('/panel/api/nodes/setEnable/'+n.id,{enable:v});if(r&&r.success){n.enable=v;this.$message.success(v?'نود فعال شد':'نود غیرفعال شد');}else await this.loadNodes();},
   removeNode(n){this.$confirm({title:'حذف نود',content:'نود «'+n.name+'» حذف شود؟',okText:'حذف',cancelText:'انصراف',class:themeSwitcher.currentTheme,onOk:async()=>{const r=await HttpUtil.post('/panel/api/nodes/del/'+n.id);if(r&&r.success){this.$message.success('نود حذف شد');await this.loadNodes();}}});}

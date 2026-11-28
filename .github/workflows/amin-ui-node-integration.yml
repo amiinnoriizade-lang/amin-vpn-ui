@@ -1,0 +1,55 @@
+name: AMIN-UI native node integration CI
+
+on:
+  push:
+    branches:
+      - feat/amin-native-node-api
+    paths:
+      - "database/model/node*.go"
+      - "web/controller/node.go"
+      - "web/job/node*.go"
+      - "web/html/nodes.html"
+      - "config/version"
+      - ".github/workflows/amin-ui-node-integration.yml"
+  pull_request:
+    paths:
+      - "database/model/node*.go"
+      - "web/controller/node.go"
+      - "web/job/node*.go"
+      - "web/html/nodes.html"
+      - "config/version"
+      - ".github/workflows/amin-ui-node-integration.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    name: Build and test native node integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Prepare optional embedded runtime directories
+        run: |
+          mkdir -p backend/bin corebundle/core
+          touch backend/bin/.gitkeep corebundle/core/.gitkeep
+      - name: Compile all packages
+        run: go build ./...
+      - name: Race-test node integration and model packages
+        run: go test -race ./web/job ./database/model
+      - name: Prepare controller test log directory
+        run: mkdir -p "$RUNNER_TEMP/vpn-ui-logs"
+      - name: Test controller package
+        # The existing controller suite starts asynchronous Xray processes and reinitializes
+        # the package-global logger; keep its behavioral tests, but do not race-instrument
+        # that unrelated legacy test harness.
+        run: go test ./web/controller
+        env:
+          VPNUI_LOG_FOLDER: ${{ runner.temp }}/vpn-ui-logs

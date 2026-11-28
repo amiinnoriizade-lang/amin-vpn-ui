@@ -6,6 +6,7 @@ on:
       - main
       - feat/sanaei-live-speed-nodes
       - feat/sanaei-node-user-management
+      - feat/amin-native-node-api
     tags:
       - "v*"
   workflow_dispatch:
@@ -58,7 +59,7 @@ jobs:
           install -m 0755 build/out/vpn-ui-amd64 ./vpn-ui-amd64
 
       - name: Upload experimental amd64 binary
-        if: startsWith(github.ref, 'refs/heads/feat/sanaei-')
+        if: startsWith(github.ref, 'refs/heads/feat/sanaei-') || github.ref == 'refs/heads/feat/amin-native-node-api'
         uses: actions/upload-artifact@v4
         with:
           name: amin-ui-linux-amd64-${{ github.sha }}

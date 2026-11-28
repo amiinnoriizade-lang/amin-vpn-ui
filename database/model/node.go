@@ -8,9 +8,11 @@ type Node struct {
  Remark string `json:"remark"`
  Scheme string `json:"scheme" gorm:"size:8;not null;default:https"`
  Address string `json:"address" gorm:"size:253;not null"`
+	PublicAddress string `json:"publicAddress" gorm:"size:253"`
  Port int `json:"port" gorm:"not null;default:2053"`
  BasePath string `json:"basePath"`
  ApiToken string `json:"-" gorm:"not null"`
+ AgentMode bool `json:"agentMode" gorm:"not null;default:false;index"`
  Enable bool `json:"enable" gorm:"not null;default:true;index"`
  AllowPrivateAddress bool `json:"allowPrivateAddress" gorm:"not null;default:false"`
  TlsVerifyMode string `json:"tlsVerifyMode" gorm:"size:24;not null;default:system"`
@@ -30,6 +32,7 @@ type Node struct {
  MemPct float64 `json:"memPct" gorm:"not null;default:0"`
  UptimeSecs uint64 `json:"uptimeSecs" gorm:"not null;default:0"`
  PanelVersion string `json:"panelVersion" gorm:"size:64"`
+ AgentVersion string `json:"agentVersion" gorm:"size:64"`
  XrayVersion string `json:"xrayVersion" gorm:"size:64"`
  XrayState string `json:"xrayState" gorm:"size:24"`
  NetUp uint64 `json:"netUp" gorm:"not null;default:0"`

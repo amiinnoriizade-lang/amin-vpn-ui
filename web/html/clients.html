@@ -443,10 +443,10 @@
                     <b>[[ r.email ]]</b><div style="font-size:11px;color:var(--muted)">[[ r.nodeName ]] · [[ r.nodeAddress ]]</div>
                   </template>
                   <template slot="nodeQuota" slot-scope="v,r">
-                    [[ sizeFormat((r.up||0)+(r.down||0)) ]] / [[ r.total===0 ? 'نامحدود' : sizeFormat(r.total) ]]
+                    [[ sizeFormat((r.up||0)+(r.down||0)) ]] / [[ r.agentMode || r.total===0 ? 'نامحدود' : sizeFormat(r.total) ]]
                   </template>
                   <template slot="nodeExpiry" slot-scope="v,r">
-                    [[ r.expiryTime ? new Date(r.expiryTime).toLocaleDateString() : 'بدون انقضا' ]]
+                    [[ r.agentMode ? 'بدون انقضا (Agent)' : (r.expiryTime ? new Date(r.expiryTime).toLocaleDateString() : 'بدون انقضا') ]]
                   </template>
                   <template slot="nodeState" slot-scope="v,r">
                     <a-tag :color="r.enable?'green':'red'">[[ r.enable?'فعال':'غیرفعال' ]]</a-tag>
@@ -455,7 +455,7 @@
                   <template slot="nodeActions" slot-scope="v,r">
                     <a-space>
                       <a-button size="small" icon="eye" @click="showNodeClientConfig(r)">کانفیگ</a-button>
-                      <a-button size="small" icon="edit" @click="openNodeClientEdit(r)">ویرایش</a-button>
+                      <a-button v-if="!r.agentMode" size="small" icon="edit" @click="openNodeClientEdit(r)">ویرایش</a-button>
                       <a-button size="small" type="danger" icon="delete" @click="deleteNodeClient(r)">حذف</a-button>
                     </a-space>
                   </template>
@@ -486,18 +486,27 @@
         <a-select-option v-for="n in managedNodes" :key="n.id" :value="n.id">[[ n.name ]] · [[ n.address ]]</a-select-option>
       </a-select>
     </a-form-model-item>
-    <a-form-model-item label="Inbound" required v-if="!nodeClientEditing">
+    <a-form-model-item label="روش ساخت" v-if="!nodeClientEditing && selectedManagedNodeIsAgent">
+       <a-radio-group v-model="nodeClientForm.mode"><a-radio value="existing">Inbound موجود</a-radio><a-radio value="new">ساخت Inbound با پورت دلخواه</a-radio></a-radio-group>
+     </a-form-model-item>
+     <a-form-model-item label="Inbound" required v-if="!nodeClientEditing && nodeClientForm.mode!=='new'">
       <a-select v-model="nodeClientForm.inboundId" placeholder="انتخاب Inbound">
         <a-select-option v-for="ib in managedNodeInbounds" :key="ib.remoteId" :value="ib.remoteId" :disabled="!ib.enable || !['vless','vmess','trojan'].includes(ib.protocol)">
           [[ ib.remark||ib.tag||('Inbound '+ib.remoteId) ]] · [[ ib.protocol ]] · :[[ ib.port ]]
         </a-select-option>
       </a-select>
     </a-form-model-item>
-    <a-form-model-item label="نام کاربری" required><a-input v-model.trim="nodeClientForm.email" :disabled="nodeClientEditing" placeholder="مثلاً amin-user-01"/></a-form-model-item>
-    <a-form-model-item label="حجم (GB)"><a-input-number v-model="nodeClientForm.totalGB" :min="0" :max="1000000" style="width:100%"/><small>صفر = نامحدود</small></a-form-model-item>
-    <a-form-model-item label="Flow" v-if="!nodeClientEditing && managedNodeInbounds.find(x=>x.remoteId===nodeClientForm.inboundId && x.protocol==='vless')"><a-select v-model="nodeClientForm.flow" allow-clear placeholder="بدون Flow"><a-select-option value="xtls-rprx-vision">xtls-rprx-vision</a-select-option></a-select></a-form-model-item>
-    <a-form-model-item label="اعتبار (روز)" v-if="!nodeClientEditing"><a-input-number v-model="nodeClientForm.days" :min="0" :max="36500" style="width:100%"/><small>صفر = بدون انقضا</small></a-form-model-item>
-    <a-form-model-item label="روز نسبت به امروز" v-else><a-input-number v-model="nodeClientForm.days" :min="-36500" :max="36500" style="width:100%"/><small>منفی = تاریخ انقضای گذشته؛ صفر = بدون انقضا</small></a-form-model-item>
+    <template v-if="!nodeClientEditing && nodeClientForm.mode==='new'">
+       <a-form-model-item label="پورت دلخواه" required><a-input-number v-model="nodeClientForm.port" :min="1" :max="65535" :step="1" style="width:100%" placeholder="مثلاً 443 یا 2053"/></a-form-model-item>
+       <a-form-model-item label="پروتکل"><a-select v-model="nodeClientForm.protocol"><a-select-option value="vless">VLESS</a-select-option><a-select-option value="vmess">VMess</a-select-option><a-select-option value="trojan">Trojan</a-select-option></a-select></a-form-model-item>
+       <a-alert type="info" show-icon message="Inbound جدید با TCP و بدون TLS ساخته می‌شود؛ پورت باید در فایروال و شبکه ارائه‌دهنده باز باشد."/>
+     </template>
+     <a-form-model-item label="نام کاربری" required><a-input v-model.trim="nodeClientForm.email" :disabled="nodeClientEditing" placeholder="مثلاً amin-user-01"/></a-form-model-item>
+    <a-form-model-item label="حجم (GB)" v-if="!selectedManagedNodeIsAgent || nodeClientEditing"><a-input-number v-model="nodeClientForm.totalGB" :min="0" :max="1000000" style="width:100%"/><small>صفر = نامحدود</small></a-form-model-item>
+    <a-form-model-item label="Flow" v-if="!nodeClientEditing && nodeClientForm.mode!=='new' && managedNodeInbounds.find(x=>x.remoteId===nodeClientForm.inboundId && x.protocol==='vless')"><a-select v-model="nodeClientForm.flow" allow-clear placeholder="بدون Flow"><a-select-option value="xtls-rprx-vision">xtls-rprx-vision</a-select-option></a-select></a-form-model-item>
+    <a-form-model-item label="اعتبار (روز)" v-if="!nodeClientEditing && !selectedManagedNodeIsAgent"><a-input-number v-model="nodeClientForm.days" :min="0" :max="36500" style="width:100%"/><small>صفر = بدون انقضا</small></a-form-model-item>
+    <a-alert v-if="!nodeClientEditing && selectedManagedNodeIsAgent" type="warning" show-icon message="این نود با Agent فعلی فقط کاربر نامحدود و بدون انقضا می‌سازد؛ محدودیت حجم و تاریخ انقضا هنوز پشتیبانی نمی‌شود."/>
+     <a-form-model-item label="روز نسبت به امروز" v-else-if="!selectedManagedNodeIsAgent"><a-input-number v-model="nodeClientForm.days" :min="-36500" :max="36500" style="width:100%"/><small>منفی = تاریخ انقضای گذشته؛ صفر = بدون انقضا</small></a-form-model-item>
     <a-form-model-item label="وضعیت" v-if="nodeClientEditing"><a-switch v-model="nodeClientForm.enable" checked-children="فعال" un-checked-children="خاموش"/></a-form-model-item>
   </a-form-model>
 </a-modal>
@@ -569,7 +578,7 @@
       nodeConfigLink: "",
       nodeClientSaving: false,
       nodeClientEditing: false,
-      nodeClientForm: {nodeId:null,inboundId:null,email:'',totalGB:0,days:30,enable:true,flow:''},
+      nodeClientForm: {nodeId:null,inboundId:null,email:'',totalGB:0,days:0,enable:true,flow:'',mode:'existing',port:2053,protocol:'vless'},
       nodeClientColumns: [
         {title:'کاربر / نود',key:'user',scopedSlots:{customRender:'nodeUser'},width:240},
         {title:'مصرف / سقف',key:'quota',scopedSlots:{customRender:'nodeQuota'},width:140},
@@ -652,6 +661,10 @@
       ],
     },
     computed: {
+      selectedManagedNodeIsAgent() {
+        const node=this.managedNodes.find(n=>Number(n.id)===Number(this.nodeClientForm.nodeId));
+        return !!(node && node.agentMode);
+      },
       // Fixed widths on everything except Serving, which is the one column whose
       // content genuinely varies and so is the one that should absorb the slack.
       // The four fixed ones are deliberately tight: three protocol chips need
@@ -1239,7 +1252,7 @@
         this.managedNodes = (r.obj||[]).filter(n=>n.enable);
         this.managedNodeInbounds = [];
         this.nodeClientEditing = false;
-        this.nodeClientForm = {nodeId:null,inboundId:null,email:'',totalGB:0,days:30,enable:true,flow:''};
+        this.nodeClientForm = {nodeId:null,inboundId:null,email:'',totalGB:0,days:0,enable:true,flow:'',mode:'existing',port:2053,protocol:'vless'};
         this.nodeClientModalVisible = true;
         if (this.managedNodes.length) {
           this.nodeClientForm.nodeId = this.managedNodes[0].id;
@@ -1253,8 +1266,13 @@
         const r = await HttpUtil.get('/panel/api/nodes/snapshot/'+id);
         if (r&&r.success) {
           this.managedNodeInbounds = (r.obj&&r.obj.inbounds)||[];
-          const first=this.managedNodeInbounds.find(x=>x.enable);
+          const first=this.managedNodeInbounds.find(x=>x.enable && ['vless','vmess','trojan'].includes(String(x.protocol||'').toLowerCase()));
           this.nodeClientForm.inboundId=first?first.remoteId:null;
+           const selected=this.managedNodes.find(n=>Number(n.id)===Number(id));
+           this.nodeClientForm.days=selected&&selected.agentMode?0:30;
+           this.nodeClientForm.mode='existing';
+           this.nodeClientForm.port=2053;
+           this.nodeClientForm.protocol='vless';
         } else this.$message.error((r&&r.msg)||'دریافت Inboundها ناموفق بود');
       },
       openNodeClientEdit(row) {
@@ -1271,7 +1289,10 @@
       },
       async saveNodeClient() {
         const f=this.nodeClientForm;
-        if (!f.email || (!this.nodeClientEditing && (!f.nodeId || !f.inboundId))) {
+        const selectedNode=this.managedNodes.find(n=>Number(n.id)===Number(f.nodeId));
+        const isAgent=!!(selectedNode&&selectedNode.agentMode);
+        const creatingNew=!this.nodeClientEditing && isAgent && f.mode==='new';
+        if (!f.email || (!this.nodeClientEditing && (!f.nodeId || (!creatingNew && !f.inboundId)))) {
           this.$message.warning('نود، Inbound و نام کاربری را کامل کنید'); return;
         }
         if (this.nodeClientEditing && f.days>0 && f.days<1) return;
@@ -1283,15 +1304,16 @@
             {totalBytes:(f.totalGB===f.originalTotalGB?f.totalBytes:f.totalGB*1073741824),expiryTime,enable:f.enable});
         } else {
           const inboundId=Number(f.inboundId);
-          const totalGB=Number(f.totalGB)||0;
-          const days=Number(f.days)||0;
-          if (!Number.isSafeInteger(inboundId) || inboundId<1 || !Number.isFinite(totalGB) || totalGB<0 || !Number.isInteger(days) || days<0) {
+          const totalGB=isAgent?0:(Number(f.totalGB)||0);
+          const days=isAgent?0:(Number(f.days)||0);
+          if ((!creatingNew && (!Number.isSafeInteger(inboundId) || inboundId<1)) || !Number.isFinite(totalGB) || totalGB<0 || !Number.isInteger(days) || days<0 || (creatingNew && (!Number.isInteger(Number(f.port)) || Number(f.port)<1 || Number(f.port)>65535))) {
             this.$message.warning('مقادیر Inbound، حجم و اعتبار نامعتبر است');
             this.nodeClientSaving=false;
             return;
           }
-          r=await HttpUtil.post('/panel/api/nodes/createClient/'+f.nodeId,
-            {inboundId,email:f.email,totalGB,days,months:0,flow:f.flow||''});
+          const payload={inboundId,email:f.email,totalGB,days,months:0,flow:f.flow||''};
+          if (creatingNew) { payload.createInbound=true; payload.port=Number(f.port); payload.protocol=f.protocol||'vless'; payload.flow=''; }
+          r=await HttpUtil.post('/panel/api/nodes/createClient/'+f.nodeId,payload);
         }
         this.nodeClientSaving=false;
         if (r&&r.success) {

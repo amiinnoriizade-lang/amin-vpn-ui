@@ -20,6 +20,7 @@ import (
 
  "github.com/mhsanaei/3x-ui/v2/database"
  "github.com/mhsanaei/3x-ui/v2/database/model"
+ "github.com/mhsanaei/3x-ui/v2/util/nodetoken"
  "github.com/mhsanaei/3x-ui/v2/logger"
  "github.com/mhsanaei/3x-ui/v2/web/websocket"
  "gorm.io/gorm"
@@ -104,6 +105,8 @@ func nodeRequest(ctx context.Context, n model.Node, method, endpoint string) (js
 // timeout, redirect, and response-size protections used by node synchronization.
 func nodeRequestBody(ctx context.Context, n model.Node, method, endpoint string, body []byte) (json.RawMessage, error) {
  if n.ApiToken == "" { return nil, fmt.Errorf("node API token is missing") }
+ token, tokenErr := nodetoken.Decrypt(n.ApiToken)
+ if tokenErr != nil { return nil, fmt.Errorf("load node API token: %w", tokenErr) }
  if n.Port < 1 || n.Port > 65535 { return nil, fmt.Errorf("invalid node port") }
  scheme := n.Scheme
  if scheme != "http" && scheme != "https" { return nil, fmt.Errorf("unsupported node scheme") }
@@ -112,6 +115,9 @@ func nodeRequestBody(ctx context.Context, n model.Node, method, endpoint string,
  ips, err := net.LookupIP(host)
  if err != nil || len(ips) == 0 { return nil, fmt.Errorf("resolve node address: %w", err) }
  for _, ip := range ips {
+  if n.AgentMode && scheme == "http" && !(ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast()) {
+   return nil, fmt.Errorf("AMIN Agent HTTP is allowed only over a private management tunnel; use HTTPS for public addresses")
+  }
   if !n.AllowPrivateAddress && !nodeAddressAllowed(ip) {
    return nil, fmt.Errorf("private or reserved node address blocked")
   }
@@ -138,7 +144,7 @@ func nodeRequestBody(ctx context.Context, n model.Node, method, endpoint string,
  if err != nil { return nil, err }
  req.Header.Set("Accept", "application/json")
  if body != nil { req.Header.Set("Content-Type", "application/json") }
- req.Header.Set("Authorization", "Bearer " + n.ApiToken)
+ req.Header.Set("Authorization", "Bearer " + token)
  transport := &http.Transport{
   TLSClientConfig: &tls.Config{
    MinVersion: tls.VersionTLS12,
@@ -163,7 +169,7 @@ func nodeRequestBody(ctx context.Context, n model.Node, method, endpoint string,
  resp, err := client.Do(req)
  if err != nil { return nil, err }
  defer resp.Body.Close()
- if resp.StatusCode != http.StatusOK { return nil, fmt.Errorf("remote API returned HTTP %d", resp.StatusCode) }
+ if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices { return nil, fmt.Errorf("remote API returned HTTP %d", resp.StatusCode) }
  raw, err := io.ReadAll(io.LimitReader(resp.Body, nodeTrafficResponseLimit+1))
  if err != nil { return nil, err }
  if len(raw) > nodeTrafficResponseLimit { return nil, fmt.Errorf("remote response exceeds %d bytes", nodeTrafficResponseLimit) }
@@ -239,6 +245,7 @@ func nodeSpeedDelta(previous map[string]nodeCounterSample, current map[string]*n
 }
 
 func (j *NodeTrafficSyncJob) syncNode(n model.Node, now int64) ([]nodeClientDelta, []string, map[string]int64, error) {
+ if n.AgentMode { return syncNativeAgentNode(n, now) }
  raw, err := nodeRequest(context.Background(), n, http.MethodGet, "panel/api/inbounds/list")
  if err != nil { return nil, nil, nil, fmt.Errorf("fetch inbounds: %w", err) }
  var inbounds []remoteInboundSnapshot

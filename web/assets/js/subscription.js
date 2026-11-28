@@ -4,6 +4,39 @@
   if (!el) return;
   const textarea = document.getElementById('subscription-links');
   const rawLinks = (textarea?.value || '').split('\n').filter(Boolean);
+  // Username/password VPNs are emitted as compatibility trojan:// records so
+  // subscription clients retain quota visibility. They are not real proxy links:
+  // render them as readable connection cards and keep them out of the raw URI list.
+  function parseConnectionCard(link) {
+    if (!link || !link.startsWith('trojan://') || !link.includes('#')) return null;
+    try {
+      const parsed = new URL(link);
+      const fragment = decodeURIComponent(parsed.hash.slice(1));
+      const match = fragment.match(/\b(OpenVPN|L2TP\/IPsec|PPTP|OpenConnect|SSTP|IKEv2)\b/i);
+      if (!match) return null;
+      const upper = match[1].toUpperCase();
+      const protocol = upper === 'OPENVPN' ? 'OpenVPN' :
+        upper === 'L2TP/IPSEC' ? 'L2TP/IPsec' :
+        upper === 'IKEV2' ? 'IKEv2' : match[1][0].toUpperCase() + match[1].slice(1);
+      const read = key => {
+        const token = fragment.split(/\s+/).find(part => part.startsWith(key + '='));
+        return token ? token.slice(key.length + 1) : '';
+      };
+      const fields = [
+        { key: 'server', label: 'Server address', value: parsed.hostname },
+        { key: 'port', label: 'Port', value: parsed.port || '—' },
+        { key: 'user', label: 'Username', value: read('user') },
+        { key: 'pass', label: 'Password', value: read('pass') }
+      ];
+      const psk = read('psk');
+      if (psk) fields.push({ key: 'psk', label: 'IPsec pre-shared key (PSK)', value: psk });
+      return { protocol, fields: fields.filter(field => field.value) };
+    } catch (e) {
+      return null;
+    }
+  }
+  const connectionCards = rawLinks.map(parseConnectionCard).filter(Boolean);
+  const visibleLinks = rawLinks.filter(link => !parseConnectionCard(link));
 
   const data = {
     sId: el.getAttribute('data-sid') || '',
@@ -112,7 +145,8 @@
     data: {
       themeSwitcher,
       app: data,
-      links: rawLinks,
+      links: visibleLinks,
+      connectionCards,
       lang: '',
       viewportWidth: (typeof window !== 'undefined' ? window.innerWidth : 1024),
     },

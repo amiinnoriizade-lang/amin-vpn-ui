@@ -46,6 +46,7 @@ func isPublicNodeIP(ip net.IP) bool {
 }
 
 func probeNode(n model.Node) map[string]any {
+ if n.AgentMode { return probeNativeAgentNode(n) }
  patch := map[string]any{"last_heartbeat":time.Now().Unix(),"status":"offline","latency_ms":0,"last_error":"","cpu_pct":0,"mem_pct":0,"uptime_secs":uint64(0),"panel_version":"","xray_version":"","xray_state":"","net_up":uint64(0),"net_down":uint64(0)}
  fail := func(err error) map[string]any { patch["last_error"]=err.Error(); return patch }
  if n.Port<1 || n.Port>65535 { return fail(fmt.Errorf("invalid node port")) }
