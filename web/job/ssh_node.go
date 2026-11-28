@@ -28,6 +28,7 @@ type SSHNodeConfig struct {
 // forwarding the node's loopback-only Xray gRPC API through SSH.
 func DialSSHNode(cfg SSHNodeConfig) (*ssh.Client, error) {
 	host := strings.TrimSpace(cfg.Address)
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") { host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]") }
 	if host == "" || strings.ContainsAny(host, "/?#@") { return nil, fmt.Errorf("invalid SSH node address") }
 	if cfg.Port < 1 || cfg.Port > 65535 { return nil, fmt.Errorf("invalid SSH port") }
 	if strings.TrimSpace(cfg.Username) == "" || len(cfg.PrivateKey) == 0 { return nil, fmt.Errorf("SSH username and private key are required") }
@@ -55,6 +56,7 @@ func DialSSHNode(cfg SSHNodeConfig) (*ssh.Client, error) {
 // host-key bypasses are deliberately not supported.
 func RunSSHNodeCommand(cfg SSHNodeConfig, command string) ([]byte, error) {
 	host := strings.TrimSpace(cfg.Address)
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") { host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]") }
 	if host == "" || strings.ContainsAny(host, "/?#@") {
 		return nil, fmt.Errorf("invalid SSH node address")
 	}
