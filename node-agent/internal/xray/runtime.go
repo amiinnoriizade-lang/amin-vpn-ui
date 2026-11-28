@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -41,7 +43,8 @@ type runtimeClient struct {
 }
 
 type runtimeState struct {
-	Version int             `json:"version"`
+	Version int `json:"version"`
+	CorePID int `json:"corePid,omitempty"`
 	Clients []runtimeClient `json:"clients"`
 }
 
@@ -377,4 +380,38 @@ func (m *RuntimeManager) Close() error {
 		return nil
 	}
 	return m.api.Close()
+}
+
+
+func (m *RuntimeManager) ReconcileIfChanged() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.api == nil {
+		return errors.New("Xray live API is unavailable")
+	}
+	out, err := exec.Command("systemctl", "show", m.config.Service, "--property=MainPID", "--value").Output()
+	if err != nil {
+		return fmt.Errorf("read Xray MainPID: %w", err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil || pid <= 0 {
+		return errors.New("Xray service does not have a running MainPID")
+	}
+	if pid == m.state.CorePID {
+		return nil
+	}
+	for _, entry := range m.state.Clients {
+		if err := m.api.AddUser(entry.Protocol, entry.Tag, entry.Client); err != nil {
+			if !strings.Contains(strings.ToLower(err.Error()), "already") {
+				return fmt.Errorf("restore runtime client %s on inbound %s: %w", stringField(entry.Client, "email"), entry.Tag, err)
+			}
+		}
+	}
+	previousPID := m.state.CorePID
+	m.state.CorePID = pid
+	if err := m.saveLocked(); err != nil {
+		m.state.CorePID = previousPID
+		return fmt.Errorf("persist reconciled Xray PID: %w", err)
+	}
+	return nil
 }
