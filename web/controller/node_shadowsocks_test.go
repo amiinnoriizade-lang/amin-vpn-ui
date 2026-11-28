@@ -14,7 +14,7 @@ func TestBuildNativeAgentShadowsocksShareLink(t *testing.T) {
 		Tag: "ss-in",
 		Port: 8388,
 		Protocol: "shadowsocks",
-		Settings: json.RawMessage(`{"method":"2022-blake3-aes-128-gcm","clients":[{"email":"alice","password":"secret-value"}]}`),
+		Settings: json.RawMessage(`{"method":"aes-128-gcm","clients":[{"email":"alice","password":"secret-value"}]}`),
 		StreamSettings: json.RawMessage(`{"network":"tcp","security":"none"}`),
 	}
 	link, protocol, remark, err := buildNativeAgentShareLink("vpn.example.com", "node-1", inbound, map[string]any{
@@ -35,7 +35,7 @@ func TestBuildNativeAgentShadowsocksShareLink(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode Shadowsocks user info: %v", err)
 	}
-	if string(decoded) != "2022-blake3-aes-128-gcm:secret-value" {
+	if string(decoded) != "aes-128-gcm:secret-value" {
 		t.Fatalf("unexpected Shadowsocks credential payload: %q", decoded)
 	}
 }
