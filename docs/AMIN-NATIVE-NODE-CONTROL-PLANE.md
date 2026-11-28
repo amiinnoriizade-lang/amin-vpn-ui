@@ -1,6 +1,11 @@
 # AMIN Native Node Control Plane
 
-Status: implementation branch opened; this document defines the release contract. It does not claim that native node management is production-ready.
+Status: implementation in progress; this document defines the release contract and records verified progress. Native node management is not production-ready.
+
+Current implementation branch: `feat/amin-node-grpc-control`.
+Verified commit: `d75049ddec55045672c02ee898db9df42e37d4c5`.
+Node Agent version: `0.3.0`.
+CI run `46150833969`: Go tests, Linux amd64 build, and Linux arm64 build all passed.
 
 ## Required operator experience
 
@@ -56,12 +61,26 @@ A release is blocked until all of these pass:
 9. Verify user-facing connection links use the public VPN address, never the management tunnel address.
 10. Verify the existing panel database and production installation are not overwritten by development deployment.
 
-## Known current gaps at branch creation
+## Verified implementation progress
 
-- The current standalone node-agent mutates the Xray JSON file and restarts the Xray service for client changes. This violates the no-interruption requirement.
-- The current panel explicitly rejects quota/expiry for Agent nodes.
-- The current agent enrollment/bootstrap lifecycle and outbound control channel are not implemented end-to-end.
+- Runtime client add/remove now uses Xray HandlerService gRPC AddUser/RemoveUser operations. These paths do not rewrite the Xray config and do not restart Xray.
+- Runtime-created client records are stored in a separate JSON state file with a private directory/file permission policy and atomic replacement.
+- The inbound listing merges saved runtime clients into the config-derived inbound response.
+- The Xray API port is discovered from the configured HandlerService and the inbound tagged `api`; it is not hardcoded.
+- The agent tracks the Xray systemd MainPID and retries restoring saved runtime clients when the process changes.
+- Direct ConfigManager client mutation methods are disabled to prevent a future caller from accidentally falling back to config rewrite/restart.
+- Unit tests cover API port parsing, runtime add/delete behavior with a fake gRPC API, unchanged config bytes, inbound list overlay, persistence, file permissions, validation, and PID-change reconciliation.
+- GitHub Actions built Linux amd64 and arm64 binaries and ran race-enabled Go tests successfully for the verified commit above.
+
+## Remaining gaps and release blockers
+
+- No end-to-end test has yet been run against the user's actual Xray service and its exact configuration/API setup.
+- Quota and expiry enforcement are still not implemented for native Agent nodes.
+- Node enrollment/bootstrap, one-time join command, secure tunnel provisioning/rotation/revocation, and panel-side enrollment UX are not complete.
 - The current node UI still contains legacy Sanaei-compatible behavior for non-Agent nodes.
-- The current agent client listing is based on the config file and is not yet a durable runtime desired-state model.
+- Deletion is currently limited to clients recorded in AMIN runtime state; legacy static clients need an explicit migration/deletion workflow.
+- Runtime state is permission-protected but not encrypted at rest.
+- Inbound creation/deletion still uses config validation and service restart; only client add/delete is no-restart.
+- The panel has not yet been validated end-to-end for node health, user creation/deletion, connection URI generation, and dashboard state.
 
 Do not bump the release version or advertise native node management as complete until the release gates above pass.
