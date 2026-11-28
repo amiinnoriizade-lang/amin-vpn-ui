@@ -121,6 +121,30 @@ func RunSSHNodeCommand(cfg SSHNodeConfig, command string) ([]byte, error) {
 	return stdout.Bytes(), nil
 }
 
+// RunSSHNodeCommandInput runs a fixed command and streams caller-supplied data to stdin.
+func RunSSHNodeCommandInput(cfg SSHNodeConfig, command string, input []byte) ([]byte,error) {
+ client,err:=DialSSHNode(cfg)
+ if err!=nil { return nil,err }
+ defer client.Close()
+ session,err:=client.NewSession()
+ if err!=nil { return nil,fmt.Errorf("open SSH session: %w",err) }
+ defer session.Close()
+ var stdout,stderr bytes.Buffer
+ session.Stdout=&stdout
+ session.Stderr=&stderr
+ stdin,err:=session.StdinPipe()
+ if err!=nil { return nil,err }
+ if err=session.Start(command);err!=nil { return nil,err }
+ if _,err=stdin.Write(input);err!=nil { _=stdin.Close(); return nil,err }
+ _=stdin.Close()
+ if err=session.Wait();err!=nil {
+  detail:=strings.TrimSpace(stderr.String())
+  if detail!="" { return stdout.Bytes(),fmt.Errorf("remote command failed: %w: %s",err,detail) }
+  return stdout.Bytes(),fmt.Errorf("remote command failed: %w",err)
+ }
+ return stdout.Bytes(),nil
+}
+
 // Ensure the default known_hosts location can be provisioned by the installer.
 func SSHKnownHostsPath() string { return "/etc/amin-ui/known_hosts" }
 
