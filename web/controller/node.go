@@ -275,6 +275,34 @@ func (a *NodeController) createClient(c *gin.Context) {
  }
  if req.Flow!="" && protocol!="vless" { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"flow is only available for VLESS"}); return }
 
+ if n.SSHMode {
+  if req.CreateInbound { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"ساخت Inbound جدید از طریق SSH هنوز پشتیبانی نمی‌شود؛ یک Inbound موجود را انتخاب کنید"}); return }
+  if req.TotalGB!=0 || req.Months!=0 || req.Days!=0 { c.JSON(http.StatusNotImplemented,gin.H{"success":false,"msg":"مدیریت SSH فعلاً فقط حساب نامحدود و بدون انقضا را پشتیبانی می‌کند"}); return }
+  if protocol!="vless" { c.JSON(http.StatusNotImplemented,gin.H{"success":false,"msg":"در حالت SSH فعلاً فقط Inboundهای VLESS پشتیبانی می‌شوند"}); return }
+  ctx,cancel:=context.WithTimeout(c.Request.Context(),30*time.Second); defer cancel()
+  liveInbounds,liveErr:=job.SSHNodeListInbounds(ctx,n)
+  if liveErr!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"خواندن Inboundهای زنده Xray ناموفق بود: "+liveErr.Error()}); return }
+  var selected *job.NativeAgentInbound
+  for i:=range liveInbounds { if liveInbounds[i].Tag==inbound.RemoteTag { selected=&liveInbounds[i]; break } }
+  if selected==nil { c.JSON(http.StatusConflict,gin.H{"success":false,"msg":"Inbound انتخاب‌شده دیگر در Xray وجود ندارد؛ فهرست را بروزرسانی کنید"}); return }
+  var liveSettings struct { Clients []map[string]any `json:"clients"` }
+  if len(selected.Settings)>0 { if err=json.Unmarshal(selected.Settings,&liveSettings);err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"خواندن کاربران Inbound ناموفق بود: "+err.Error()}); return } }
+  for _,existing:=range liveSettings.Clients { if strings.EqualFold(strings.TrimSpace(fmt.Sprint(existing["email"])),req.Email) { c.JSON(http.StatusConflict,gin.H{"success":false,"msg":"این نام کاربری از قبل در Inbound وجود دارد"}); return } }
+  clientID:=uuid.NewString()
+  sshCfg,cfgErr:=job.SSHNodeConfigFromModel(n)
+  if cfgErr!=nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":cfgErr.Error()}); return }
+  if err=job.SSHXrayAddVLESSClient(ctx,sshCfg,selected.Tag,req.Email,clientID,req.Flow);err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"Xray کاربر را نپذیرفت: "+err.Error()}); return }
+  if err=job.SSHNodePersistVLESSClient(ctx,n,selected.Tag,req.Email,clientID,req.Flow,true);err!=nil {
+   rollbackErr:=job.SSHXrayRemoveClient(ctx,sshCfg,selected.Tag,req.Email)
+   msg:="ذخیره دائمی کاربر در config.json ناموفق بود: "+err.Error()
+   if rollbackErr!=nil { msg+="؛ حذف کاربر از حافظه Xray نیز ناموفق بود: "+rollbackErr.Error() }
+   c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":msg}); return
+  }
+  if err=syncSSHNodeSnapshots(ctx,n);err!=nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"کاربر ساخته و در config ذخیره شد، اما بروزرسانی فهرست پنل ناموفق بود: "+err.Error()}); return }
+  c.JSON(http.StatusOK,gin.H{"success":true,"obj":gin.H{"nodeId":id,"inboundId":inbound.RemoteID,"inbound":selected.Tag,"protocol":"vless","port":selected.Port,"email":req.Email,"id":clientID,"credential":clientID}})
+  return
+ }
+
  if n.AgentMode {
   if req.TotalGB!=0 || req.Months!=0 || req.Days!=0 {
    c.JSON(http.StatusNotImplemented,gin.H{"success":false,"msg":"AMIN Node Agent currently does not enforce traffic quotas or expiry; use unlimited volume and no expiry"}); return
