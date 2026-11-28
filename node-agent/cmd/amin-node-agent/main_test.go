@@ -33,7 +33,7 @@ func TestAuthAcceptsCorrectBearerToken(t *testing.T) {
 func TestInboundAPIUnavailableWithoutXray(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/inbounds", nil)
 	rec := httptest.NewRecorder()
-	inboundAPI(nil)(rec, req)
+	inboundAPI(nil, nil)(rec, req)
 	if rec.Code != http.StatusServiceUnavailable { t.Fatalf("got %d: %s", rec.Code, rec.Body.String()) }
 }
 
