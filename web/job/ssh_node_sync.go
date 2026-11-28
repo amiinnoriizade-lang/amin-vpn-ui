@@ -19,8 +19,6 @@ func SSHNodeListInbounds(ctx context.Context, n model.Node) ([]NativeAgentInboun
 	if err != nil { return nil, fmt.Errorf("decrypt SSH private key: %w", err) }
 	port := n.SSHPort
 	if port == 0 { port = 22 }
-	commandCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
 	type xrayConfig struct {
 		Inbounds []struct {
 			Tag string `json:"tag"`
