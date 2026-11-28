@@ -8,6 +8,7 @@ on:
       - feat/sanaei-node-user-management
       - feat/amin-native-node-api
       - feat/amin-agent-client-update
+      - feat/aminui-login-subscription-design
     tags:
       - "v*"
   workflow_dispatch:
