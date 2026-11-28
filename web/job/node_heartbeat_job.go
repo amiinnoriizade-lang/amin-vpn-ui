@@ -111,7 +111,7 @@ func probeSSHNode(n model.Node) map[string]any {
  patch["latency_ms"]=int(time.Since(started).Milliseconds())
  if err!=nil { return fail(err) }
  values:=map[string]string{}
- for _,line:=range strings.Split(string(output),"\\n") { if k,v,ok:=strings.Cut(strings.TrimSpace(line),"=");ok { values[k]=strings.TrimSpace(v) } }
+ for _,line:=range strings.Split(string(output),"\n") { if k,v,ok:=strings.Cut(strings.TrimSpace(line),"=");ok { values[k]=strings.TrimSpace(v) } }
  if state:=values["xray_state"];state!="" { patch["xray_state"]=state }
  if version:=values["xray_version"];version!="" { patch["xray_version"]=version }
  if mem,parseErr:=strconv.ParseFloat(values["mem"],64);parseErr==nil { patch["mem_pct"]=mem }
