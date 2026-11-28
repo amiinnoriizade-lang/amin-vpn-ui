@@ -133,7 +133,7 @@ func NewRuntimeManager(config *ConfigManager, statePath string) (*RuntimeManager
 		return nil, fmt.Errorf("create Xray gRPC client: %w", err)
 	}
 	api := &grpcRuntimeAPI{conn: conn, client: command.NewHandlerServiceClient(conn)}
-	m := &RuntimeManager{config: config, api: api, path: filepath.Clean(statePath), state: runtimeState{Version: 1, Clients: []runtimeClient{}}}
+	m := &RuntimeManager{config: config, api: api, path: filepath.Clean(statePath), state: runtimeState{Version: 1, Clients: []runtimeClient{}, Deleted: []runtimeTombstone{}}}
 	if err := m.load(); err != nil {
 		conn.Close()
 		return nil, err
@@ -384,9 +384,13 @@ func (m *RuntimeManager) AddClient(tag string, client map[string]interface{}) er
 	credentialKey, err := validateRuntimeClient(proto, client)
 	if err != nil { return err }
 	credential := stringField(client, credentialKey)
+	tombstoned := false
+	for _, deleted := range m.state.Deleted {
+		if deleted.Tag == tag && deleted.Email == email { tombstoned = true; break }
+	}
 	for _, raw := range staticClients {
 		if existing, ok := raw.(map[string]interface{}); ok {
-			if stringField(existing, "email") == email { return errors.New("client email already exists in Xray config") }
+			if stringField(existing, "email") == email && !tombstoned { return errors.New("client email already exists in Xray config") }
 			if stringField(existing, credentialKey) == credential { return fmt.Errorf("client %s already exists in Xray config", credentialKey) }
 		}
 	}
@@ -398,13 +402,31 @@ func (m *RuntimeManager) AddClient(tag string, client map[string]interface{}) er
 		}
 	}
 	entry := runtimeClient{Tag: tag, Protocol: proto, Client: client}
+	previousDeleted := append([]runtimeTombstone(nil), m.state.Deleted...)
+	if tombstoned {
+		filtered := make([]runtimeTombstone, 0, len(m.state.Deleted))
+		for _, deleted := range m.state.Deleted {
+			if deleted.Tag != tag || deleted.Email != email { filtered = append(filtered, deleted) }
+		}
+		m.state.Deleted = filtered
+	}
 	m.state.Clients = append(m.state.Clients, entry)
 	if err := m.saveLocked(); err != nil {
 		m.state.Clients = m.state.Clients[:len(m.state.Clients)-1]
+		m.state.Deleted = previousDeleted
 		return fmt.Errorf("persist client before applying: %w", err)
+	}
+	if tombstoned {
+		if err := m.api.RemoveUser(tag, email); err != nil && !isMissingUserError(err) {
+			m.state.Clients = m.state.Clients[:len(m.state.Clients)-1]
+			m.state.Deleted = previousDeleted
+			_ = m.saveLocked()
+			return fmt.Errorf("remove old static client before replacement: %w", err)
+		}
 	}
 	if err := m.api.AddUser(proto, tag, client); err != nil {
 		m.state.Clients = m.state.Clients[:len(m.state.Clients)-1]
+		m.state.Deleted = previousDeleted
 		if saveErr := m.saveLocked(); saveErr != nil {
 			return fmt.Errorf("%v; also failed to roll back state: %w", err, saveErr)
 		}
@@ -413,19 +435,20 @@ func (m *RuntimeManager) AddClient(tag string, client map[string]interface{}) er
 	return nil
 }
 
+func isMissingUserError(err error) bool {
+	if err == nil { return false }
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "not found") || strings.Contains(message, "not exist") || strings.Contains(message, "no such user")
+}
+
 func (m *RuntimeManager) DeleteClient(tag, email string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.api == nil {
-		return errors.New("Xray live API is unavailable")
-	}
+	if m.api == nil { return errors.New("Xray live API is unavailable") }
+	if email == "" || len(email) > 128 || strings.ContainsAny(email, " \t\r\n") { return errors.New("invalid client email") }
 	for i, entry := range m.state.Clients {
-		if entry.Tag != tag || stringField(entry.Client, "email") != email {
-			continue
-		}
-		if err := m.api.RemoveUser(tag, email); err != nil {
-			return err
-		}
+		if entry.Tag != tag || stringField(entry.Client, "email") != email { continue }
+		if err := m.api.RemoveUser(tag, email); err != nil { return err }
 		previous := entry
 		m.state.Clients = append(m.state.Clients[:i], m.state.Clients[i+1:]...)
 		if err := m.saveLocked(); err != nil {
@@ -435,7 +458,35 @@ func (m *RuntimeManager) DeleteClient(tag, email string) error {
 		}
 		return nil
 	}
-	return errors.New("client is not managed by AMIN runtime state; legacy static clients are not deleted by live API")
+	inbounds, err := m.config.ListInbounds()
+	if err != nil { return err }
+	proto, found := "", false
+	for _, in := range inbounds {
+		if stringField(in, "tag") != tag { continue }
+		proto = stringField(in, "protocol")
+		settings, _ := in["settings"].(map[string]interface{})
+		clients, _ := settings["clients"].([]interface{})
+		for _, raw := range clients {
+			if existing, ok := raw.(map[string]interface{}); ok && stringField(existing, "email") == email { found = true; break }
+		}
+		break
+	}
+	if !found { return errors.New("client not found on this inbound") }
+	for _, deleted := range m.state.Deleted {
+		if deleted.Tag == tag && deleted.Email == email { return nil }
+	}
+	m.state.Deleted = append(m.state.Deleted, runtimeTombstone{Tag:tag, Email:email})
+	if err := m.saveLocked(); err != nil {
+		m.state.Deleted = m.state.Deleted[:len(m.state.Deleted)-1]
+		return fmt.Errorf("persist static client deletion: %w", err)
+	}
+	if err := m.api.RemoveUser(tag, email); err != nil && !isMissingUserError(err) {
+		m.state.Deleted = m.state.Deleted[:len(m.state.Deleted)-1]
+		_ = m.saveLocked()
+		return err
+	}
+	_ = proto
+	return nil
 }
 
 func (m *RuntimeManager) Close() error {
@@ -475,6 +526,11 @@ func (m *RuntimeManager) reconcileForPID(pid int) error {
 			if !strings.Contains(strings.ToLower(err.Error()), "already") {
 				return fmt.Errorf("restore runtime client %s on inbound %s: %w", stringField(entry.Client, "email"), entry.Tag, err)
 			}
+		}
+	}
+	for _, deleted := range m.state.Deleted {
+		if err := m.api.RemoveUser(deleted.Tag, deleted.Email); err != nil && !isMissingUserError(err) {
+			return fmt.Errorf("reapply deleted static client %s on inbound %s: %w", deleted.Email, deleted.Tag, err)
 		}
 	}
 	previousPID := m.state.CorePID
