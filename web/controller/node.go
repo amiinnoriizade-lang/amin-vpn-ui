@@ -570,6 +570,7 @@ func validRemoteEmail(email string) bool {
 
 func (a *NodeController) updateNodeClient(c *gin.Context) {
  n,ok:=a.loadManageableNode(c); if !ok { return }
+ if n.SSHMode { c.JSON(http.StatusNotImplemented,gin.H{"success":false,"msg":"ویرایش حجم، انقضا و وضعیت کاربر در حالت SSH هنوز پشتیبانی نمی‌شود"}); return }
  if n.AgentMode { c.JSON(http.StatusNotImplemented,gin.H{"success":false,"msg":"client update is not yet supported by the current AMIN Node Agent API"}); return }
  email:=strings.ToLower(strings.TrimSpace(c.Param("email")))
  if !validRemoteEmail(email) { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid username"}); return }
@@ -835,15 +836,16 @@ func buildNativeAgentShareLink(publicHost,nodeName string,ib job.NativeAgentInbo
 func (a *NodeController) nodeClientConfig(c *gin.Context) {
  n, ok := a.loadManageableNode(c)
  if !ok { return }
- if n.AgentMode {
+ if n.AgentMode || n.SSHMode {
   email:=strings.ToLower(strings.TrimSpace(c.Param("email")))
   if !validRemoteEmail(email) { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid username"}); return }
   if strings.TrimSpace(n.PublicAddress)=="" {
    c.JSON(http.StatusPreconditionFailed,gin.H{"success":false,"msg":"برای تولید کانفیگ، آدرس عمومی سرور را در ویرایش نود و فیلد «آدرس عمومی اتصال» وارد کنید؛ آدرس 127.0.0.1:18787 فقط تونل مدیریتی است و نباید داخل کانفیگ کاربر قرار بگیرد."}); return
   }
   ctx,cancel:=context.WithTimeout(c.Request.Context(),15*time.Second); defer cancel()
-  inbounds,err:=job.NativeAgentListInbounds(ctx,n)
-  if err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"دریافت Inboundهای زنده Agent ناموفق بود: "+err.Error()}); return }
+  var inbounds []job.NativeAgentInbound
+  if n.SSHMode { inbounds,err=job.SSHNodeListInbounds(ctx,n) } else { inbounds,err=job.NativeAgentListInbounds(ctx,n) }
+  if err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"دریافت Inboundهای زنده نود ناموفق بود: "+err.Error()}); return }
   for _,ib:=range inbounds {
    var settings struct { Clients []map[string]any `json:"clients"` }
    if len(ib.Settings)>0 {
@@ -851,7 +853,9 @@ func (a *NodeController) nodeClientConfig(c *gin.Context) {
    }
    for _,client:=range settings.Clients {
     if !strings.EqualFold(strings.TrimSpace(fmt.Sprint(client["email"])),email) { continue }
-    link,protocol,remark,linkErr:=buildNativeAgentShareLink(n.PublicAddress,n.Name,ib,client,email)
+    publicHost:=strings.TrimSpace(n.PublicAddress)
+    if publicHost=="" { publicHost=n.Address }
+    link,protocol,remark,linkErr:=buildNativeAgentShareLink(publicHost,n.Name,ib,client,email)
     if linkErr!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":linkErr.Error()}); return }
     c.JSON(http.StatusOK,gin.H{"success":true,"obj":gin.H{"email":email,"nodeName":n.Name,"inbound":remark,"protocol":protocol,"port":ib.Port,"link":link}})
     return
