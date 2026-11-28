@@ -87,3 +87,22 @@ func TestRuntimeStateSurvivesManagerRecreation(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	if info.Mode().Perm() != 0600 { t.Fatalf("state permissions=%o, want 600", info.Mode().Perm()) }
 }
+
+func TestRuntimeReconcilesOnlyWhenCorePIDChanges(t *testing.T) {
+	manager, _, _ := runtimeTestManager(t)
+	api := &fakeRuntimeAPI{}
+	m := &RuntimeManager{
+		config: manager,
+		api: api,
+		path: filepath.Join(t.TempDir(), "state.json"),
+		state: runtimeState{Version:1, CorePID:100, Clients:[]runtimeClient{
+			{Tag:"edge", Protocol:"vless", Client:map[string]interface{}{"email":"persisted","id":"00000000-0000-4000-8000-000000000125"}},
+		}},
+	}
+	if err := m.saveLocked(); err != nil { t.Fatal(err) }
+	if err := m.reconcileForPID(100); err != nil { t.Fatal(err) }
+	if len(api.added) != 0 { t.Fatalf("same Xray PID must not duplicate users: %#v", api.added) }
+	if err := m.reconcileForPID(101); err != nil { t.Fatal(err) }
+	if len(api.added) != 1 || api.added[0] != "edge:persisted" { t.Fatalf("changed Xray PID did not restore clients: %#v", api.added) }
+	if m.state.CorePID != 101 { t.Fatalf("saved core PID=%d, want 101", m.state.CorePID) }
+}
