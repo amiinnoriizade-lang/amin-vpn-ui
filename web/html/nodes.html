@@ -79,13 +79,17 @@
         <a-alert v-if="selectedNode.agentMode" type="info" show-icon
           message="قابلیت‌ها و محدودیت‌های Agent"
           description="ساخت و حذف کاربر و تولید لینک اتصال پشتیبانی می‌شود. برای دریافت لینک، آدرس عمومی اتصال را در تنظیمات نود وارد کنید. محدودیت حجم، تاریخ انقضا و ویرایش کاربر هنوز در API Agent پیاده‌سازی نشده‌اند." style="margin-bottom:12px"/>
+        <a-alert v-if="selectedNode.sshMode" type="info" show-icon
+          message="مدیریت مستقیم Xray از طریق SSH"
+          description="Inboundهای زنده خوانده می‌شوند؛ ساخت و حذف دائمی کاربر فعلاً برای VLESS فعال است. سهمیه حجم، انقضا و ویرایش وضعیت کاربر هنوز پشتیبانی نمی‌شود." style="margin-bottom:12px"/>
+
         <a-table :columns="inboundColumns" :data-source="nodeSnapshot.inbounds || []" :row-key="r => r.id" :pagination="false" :scroll="{x:700}" size="small">
           <template slot="inboundTag" slot-scope="text,ib">
             <div style="font-weight:700">[[ ib.tag || ib.remoteTag || ib.remark ]]</div>
             <small style="color:var(--muted)">[[ ib.listen || '0.0.0.0' ]]:[[ ib.port ]]</small>
           </template>
           <template slot="inboundActions" slot-scope="text,ib">
-            <a-button size="small" type="primary" icon="user-add" @click="openCreateClient(ib)">ساخت کاربر</a-button>
+            <a-button v-if="!selectedNode.sshMode || String(ib.protocol||'').toLowerCase()==='vless'" size="small" type="primary" icon="user-add" @click="openCreateClient(ib)">ساخت کاربر</a-button>
           </template>
         </a-table>
         <a-divider>کاربران این نود</a-divider>
@@ -159,10 +163,12 @@
   <div style="display:flex;flex-direction:column;gap:12px;min-width:0;color:var(--text)">
     <label style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
       <strong>نوع نود</strong>
-      <span style="display:flex;align-items:center;gap:8px">
+      <span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
         <span>سنایی</span>
-        <input type="checkbox" :checked="form.agentMode" @change="toggleNodeType($event.target.checked)"/>
+        <input type="checkbox" :checked="form.agentMode" :disabled="form.sshMode" @change="toggleNodeType($event.target.checked)"/>
         <span>AMIN Agent</span>
+        <input type="checkbox" :checked="form.sshMode" :disabled="form.agentMode" @change="toggleSSHMode($event.target.checked)"/>
+        <span>SSH مستقیم Xray</span>
       </span>
     </label>
     <div v-if="form.agentMode" class="amin-agent-road-banner" role="img" aria-label="خودرویی روی جاده پرپیچ‌وخم، نماد مسیر امن ارتباط با AMIN Agent">
@@ -209,7 +215,7 @@
       </label>
     </div>
     <div style="display:grid;grid-template-columns:minmax(75px,.8fr) minmax(0,1.5fr) minmax(80px,.8fr);gap:8px">
-      <label style="display:block;min-width:0">پروتکل
+      <label v-if="!form.sshMode" style="display:block;min-width:0">پروتکل
         <select class="ant-input" v-model="form.scheme" style="display:block;width:100%;margin-top:5px">
           <option value="https">HTTPS</option><option value="http">HTTP</option>
         </select>
@@ -217,7 +223,7 @@
       <label style="display:block;min-width:0">آدرس
         <input class="ant-input" v-model="form.address" :placeholder="form.agentMode ? '127.0.0.1' : 'node.example.com'" style="display:block;width:100%;margin-top:5px"/>
       </label>
-      <label style="display:block;min-width:0">پورت
+      <label v-if="!form.sshMode" style="display:block;min-width:0">پورت
         <input class="ant-input" type="number" min="1" max="65535" v-model.number="form.port" style="display:block;width:100%;margin-top:5px"/>
       </label>
     </div>
@@ -226,12 +232,23 @@
       <input class="ant-input" v-model="form.publicAddress" placeholder="IP یا دامنه عمومی سرور مقصد؛ نه 127.0.0.1" style="display:block;width:100%;margin-top:5px"/>
       <small style="display:block;margin-top:5px;color:var(--muted)">این آدرس داخل لینک VLESS/VMess/Trojan قرار می‌گیرد. آدرس بالا صرفاً مسیر مدیریتی Agent است و ممکن است 127.0.0.1 باشد.</small>
     </label>
-    <label style="display:block">Base Path
+    <label v-if="!form.sshMode" style="display:block">Base Path
       <input class="ant-input" v-model="form.basePath" :placeholder="form.agentMode ? 'خالی بگذارید' : '/'" style="display:block;width:100%;margin-top:5px"/>
     </label>
-    <label style="display:block">[[ editing ? 'توکن جدید (اختیاری)' : 'API Token' ]]
+    <label v-if="!form.sshMode" style="display:block">[[ editing ? 'توکن جدید (اختیاری)' : 'API Token' ]]
       <input class="ant-input" type="password" v-model="form.apiToken" :placeholder="editing ? 'خالی = حفظ توکن فعلی' : (form.agentMode ? 'AMIN_NODE_TOKEN' : 'توکن دسترسی پنل سنایی')" style="display:block;width:100%;margin-top:5px"/>
     </label>
+    <template v-if="form.sshMode">
+      <a-alert type="info" show-icon message="اتصال مستقیم SSH" description="کلید خصوصی فقط در پنل به‌صورت رمزگذاری‌شده ذخیره می‌شود. کلید عمومی متناظر باید در authorized_keys کاربر SSH نود نصب و اثرانگشت میزبان در /etc/amin-ui/known_hosts ثبت شده باشد."/>
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px">
+        <label>کاربر SSH<input class="ant-input" v-model="form.sshUsername" placeholder="root" style="display:block;width:100%;margin-top:5px"/></label>
+        <label>پورت SSH<input class="ant-input" type="number" min="1" max="65535" v-model.number="form.sshPort" style="display:block;width:100%;margin-top:5px"/></label>
+      </div>
+      <label style="display:block">کلید خصوصی SSH [[ editing ? '(برای حفظ کلید خالی بگذارید)' : '*' ]]
+        <textarea class="ant-input" v-model="form.sshPrivateKey" rows="5" autocomplete="off" spellcheck="false" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" style="display:block;width:100%;margin-top:5px;font-family:monospace"></textarea>
+      </label>
+      <a-alert type="warning" show-icon message="API داخلی Xray باید فقط روی 127.0.0.1:10087 فعال باشد؛ این پورت را عمومی نکنید."/>
+    </template>
     <label style="display:block">اعتبار TLS
       <select class="ant-input" v-model="form.tlsVerifyMode" style="display:block;width:100%;margin-top:5px">
         <option value="system">اعتبارسنجی استاندارد</option>
@@ -284,25 +301,25 @@ const nodeColumns = [
  {title:'فعال',key:'enable',scopedSlots:{customRender:'nodeEnabled'},width:70,align:'center'},
  {title:'عملیات',key:'actions',scopedSlots:{customRender:'nodeActions'},width:170,align:'center'}
 ];
-function emptyNode(){return {agentMode:false,name:'',remark:'',scheme:'https',address:'',publicAddress:'',port:2053,basePath:'',apiToken:'',enable:true,allowPrivateAddress:false,tlsVerifyMode:'system',pinnedCertSha256:'',inboundSyncMode:'all',inboundTags:'',outboundTag:'',guid:'',parentGuid:'',transitive:false};}
+function emptyNode(){return {sshMode:false,sshUsername:'root',sshPort:22,sshPrivateKey:'',agentMode:false,name:'',remark:'',scheme:'https',address:'',publicAddress:'',port:2053,basePath:'',apiToken:'',enable:true,allowPrivateAddress:false,tlsVerifyMode:'system',pinnedCertSha256:'',inboundSyncMode:'all',inboundTags:'',outboundTag:'',guid:'',parentGuid:'',transitive:false};}
 const app = new Vue({
  delimiters:['[[',']]'], mixins:[MediaQueryMixin], el:'#app',
  data:{themeSwitcher,pageTitle:'Nodes',pageClass:'',loading:false,saving:false,probingId:null,nodes:[],columns:nodeColumns,modalVisible:false,editing:false,editingId:null,form:emptyNode(),selectedNode:null,nodeSnapshot:{inbounds:[],clients:[]},snapshotLoading:false,clientModalVisible:false,clientSaving:false,clientError:'',credentialModalVisible:false,createdEmail:'',createdCredential:'',createdLink:'',configError:'',configLoading:false,clientForm:{mode:'existing',inboundId:null,port:2053,email:'',flow:'',protocol:'vless'}},
  computed:{
-  selectableInbounds(){return (this.nodeSnapshot.inbounds||[]).filter(ib=>ib.enable!==false&&['vless','vmess','trojan'].includes(String(ib.protocol||'').toLowerCase()));}
+  selectableInbounds(){return (this.nodeSnapshot.inbounds||[]).filter(ib=>ib.enable!==false&&(this.selectedNode&&this.selectedNode.sshMode?String(ib.protocol||'').toLowerCase()==='vless':['vless','vmess','trojan'].includes(String(ib.protocol||'').toLowerCase())));}
  },
  methods:{
   async loadNodes(){this.loading=true;const r=await HttpUtil.get('/panel/api/nodes/list');this.loading=false;if(r&&r.success)this.nodes=r.obj||[];},
   statusColor(n){return n.status==='online'?'green':n.status==='offline'?'red':'orange';},
   statusText(n){return n.status==='online'?'آنلاین':n.status==='offline'?'آفلاین':'نامشخص';},
   formatRate(v){v=Number(v||0);if(v<1024)return v+' B/s';if(v<1048576)return (v/1024).toFixed(1)+' KB/s';return (v/1048576).toFixed(2)+' MB/s';},
-  toggleNodeType(v){this.form.agentMode=v;if(v){this.form.port=18787;this.form.scheme='http';this.form.basePath='';this.form.allowPrivateAddress=true;}else{this.form.port=2053;this.form.scheme='https';}},
+  toggleNodeType(v){this.form.agentMode=v;if(v){this.form.sshMode=false;this.form.port=18787;this.form.scheme='http';this.form.basePath='';this.form.allowPrivateAddress=true;}else{this.form.port=2053;this.form.scheme='https';}},\n  toggleSSHMode(v){this.form.sshMode=v;if(v){this.form.agentMode=false;this.form.sshPort=this.form.sshPort||22;this.form.port=0;this.form.apiToken='';}else{this.form.port=2053;}},
   openAdd(){this.editing=false;this.editingId=null;this.form=emptyNode();this.modalVisible=true;},
-  openEdit(n){this.editing=true;this.editingId=n.id;this.form=Object.assign(emptyNode(),n,{apiToken:''});this.modalVisible=true;},
+  openEdit(n){this.editing=true;this.editingId=n.id;this.form=Object.assign(emptyNode(),n,{apiToken:'',sshPrivateKey:''});this.modalVisible=true;},
   async saveNode(){
-   if(!this.form.name.trim()||!this.form.address.trim()||!this.form.port){this.$message.error('نام، آدرس و پورت الزامی است');return;}
-   if(!this.editing&&!this.form.apiToken.trim()){this.$message.error('API Token الزامی است');return;}
-   this.saving=true;const payload=Object.assign({},this.form);const url=this.editing?('/panel/api/nodes/update/'+this.editingId):'/panel/api/nodes/add';
+   if(!this.form.name.trim()||!this.form.address.trim()||(!this.form.sshMode&&!this.form.port)){this.$message.error('نام و آدرس نود و پورت مدیریتی الزامی است');return;}
+   if(this.form.sshMode){if(!this.form.sshUsername.trim()||!this.form.sshPort){this.$message.error('نام کاربری و پورت SSH الزامی است');return;}if(!this.editing&&!this.form.sshPrivateKey.trim()){this.$message.error('کلید خصوصی SSH الزامی است');return;}}else if(!this.form.agentMode&&!this.editing&&!this.form.apiToken.trim()){this.$message.error('API Token الزامی است');return;}
+   this.saving=true;const payload=Object.assign({},this.form);if(this.form.sshMode){payload.port=0;payload.scheme='';payload.basePath='';payload.apiToken='';}else{payload.sshPrivateKey='';}const url=this.editing?('/panel/api/nodes/update/'+this.editingId):'/panel/api/nodes/add';
    const r=await HttpUtil.post(url,payload);this.saving=false;
    if(r&&r.success){this.$message.success('اطلاعات نود ذخیره شد');this.modalVisible=false;await this.loadNodes();}
   },

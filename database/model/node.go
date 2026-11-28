@@ -12,6 +12,10 @@ type Node struct {
  Port int `json:"port" gorm:"not null;default:2053"`
  BasePath string `json:"basePath"`
  ApiToken string `json:"-" gorm:"not null"`
+	SSHMode bool `json:"sshMode" gorm:"not null;default:false;index"`
+	SSHUsername string `json:"sshUsername" gorm:"size:128"`
+	SSHPort int `json:"sshPort" gorm:"not null;default:22"`
+	SSHPrivateKey string `json:"-" gorm:"type:text"`
  AgentMode bool `json:"agentMode" gorm:"not null;default:false;index"`
  Enable bool `json:"enable" gorm:"not null;default:true;index"`
  AllowPrivateAddress bool `json:"allowPrivateAddress" gorm:"not null;default:false"`

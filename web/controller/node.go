@@ -38,6 +38,10 @@ type nodeMutation struct {
  Port int `form:"port" json:"port"`
  BasePath string `form:"basePath" json:"basePath"`
  ApiToken string `form:"apiToken" json:"apiToken"`
+ SSHMode bool `form:"sshMode" json:"sshMode"`
+ SSHUsername string `form:"sshUsername" json:"sshUsername"`
+ SSHPort int `form:"sshPort" json:"sshPort"`
+ SSHPrivateKey string `form:"sshPrivateKey" json:"sshPrivateKey"`
  AgentMode bool `form:"agentMode" json:"agentMode"`
  Enable *bool `form:"enable" json:"enable"`
  AllowPrivateAddress bool `form:"allowPrivateAddress" json:"allowPrivateAddress"`
@@ -86,15 +90,26 @@ func validNodeMutation(v nodeMutation, creating bool) string {
  if strings.TrimSpace(v.Name)=="" { return "name is required" }
  if strings.TrimSpace(v.Address)=="" { return "address is required" }
  if v.PublicAddress!="" && !validNodeHost(v.PublicAddress) { return "publicAddress must be a hostname or IP without a URL path" }
- if v.Scheme=="" { v.Scheme="https" }
- if v.Scheme!="http" && v.Scheme!="https" { return "scheme must be http or https" }
- if v.Port<1 || v.Port>65535 { return "port must be between 1 and 65535" }
+ if v.SSHMode {
+  // SSH nodes do not use the remote panel API scheme/port or API token.
+  // Their management endpoint is the SSH host and SSHPort (default 22).
+  if v.AgentMode { return "direct SSH and AMIN Agent modes are mutually exclusive" }
+  if strings.TrimSpace(v.SSHUsername)=="" { return "sshUsername is required for direct SSH nodes" }
+  if v.SSHPort==0 { v.SSHPort=22 }
+  if v.SSHPort<1 || v.SSHPort>65535 { return "sshPort must be between 1 and 65535" }
+  if creating && strings.TrimSpace(v.SSHPrivateKey)=="" { return "sshPrivateKey is required for a new SSH node" }
+  if strings.TrimSpace(v.SSHPrivateKey)!="" && !strings.Contains(v.SSHPrivateKey,"PRIVATE KEY") { return "sshPrivateKey must be an OpenSSH or PEM private key" }
+ } else {
+  if v.Scheme=="" { v.Scheme="https" }
+  if v.Scheme!="http" && v.Scheme!="https" { return "scheme must be http or https" }
+  if v.Port<1 || v.Port>65535 { return "port must be between 1 and 65535" }
+  if creating && strings.TrimSpace(v.ApiToken)=="" { return "apiToken is required" }
+ }
  if strings.ContainsAny(v.Address, "/?#@") { return "address must be a hostname or IP without a URL path" }
  if net.ParseIP(v.Address)==nil {
   u,err:=url.Parse("https://"+v.Address)
   if err!=nil || u.Hostname()=="" || u.User!=nil || u.Path!="" { return "invalid address" }
  }
- if creating && strings.TrimSpace(v.ApiToken)=="" { return "apiToken is required" }
  if v.AgentMode && v.Scheme=="http" && !v.AllowPrivateAddress { return "AMIN Agent over HTTP requires an explicitly trusted private management tunnel; otherwise use HTTPS" }
  if v.TlsVerifyMode!="" && v.TlsVerifyMode!="system" && v.TlsVerifyMode!="insecure" && v.TlsVerifyMode!="pinned" { return "invalid tlsVerifyMode" }
  if v.TlsVerifyMode=="pinned" && len(strings.TrimSpace(v.PinnedCertSha256))!=64 { return "pinned TLS mode requires a SHA-256 certificate fingerprint" }
@@ -113,9 +128,10 @@ func (a *NodeController) get(c *gin.Context) {
  c.JSON(http.StatusOK,gin.H{"success":true,"obj":n})
 }
 func nodeFromMutation(v nodeMutation, old model.Node) model.Node {
- old.Name=strings.TrimSpace(v.Name); old.Remark=v.Remark; old.AgentMode=v.AgentMode; old.Scheme=v.Scheme; if old.Scheme=="" {old.Scheme="https"}
+ old.Name=strings.TrimSpace(v.Name); old.Remark=v.Remark; old.AgentMode=v.AgentMode; old.SSHMode=v.SSHMode; old.SSHUsername=strings.TrimSpace(v.SSHUsername); old.SSHPort=v.SSHPort; if old.SSHPort==0 { old.SSHPort=22 }; old.Scheme=v.Scheme; if old.Scheme=="" {old.Scheme="https"}
  old.Address=strings.TrimSpace(v.Address); old.PublicAddress=strings.TrimSpace(v.PublicAddress); old.Port=v.Port; old.BasePath=strings.TrimSpace(v.BasePath)
  if v.ApiToken!="" {old.ApiToken=v.ApiToken}
+ if v.SSHPrivateKey!="" {old.SSHPrivateKey=v.SSHPrivateKey}
  if v.Enable!=nil {old.Enable=*v.Enable} else if old.Id==0 {old.Enable=true}
  old.AllowPrivateAddress=v.AllowPrivateAddress; old.TlsVerifyMode=v.TlsVerifyMode; if old.TlsVerifyMode=="" {old.TlsVerifyMode="system"}
  old.PinnedCertSha256=strings.TrimSpace(v.PinnedCertSha256); old.InboundSyncMode=v.InboundSyncMode; if old.InboundSyncMode=="" {old.InboundSyncMode="all"}
@@ -127,9 +143,16 @@ func (a *NodeController) add(c *gin.Context) {
  if err:=c.ShouldBind(&v); err!=nil {c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid JSON"});return}
  if msg:=validNodeMutation(v,true); msg!="" {c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":msg});return}
  n:=nodeFromMutation(v,model.Node{})
- encryptedToken, tokenErr := nodetoken.Encrypt(n.ApiToken)
- if tokenErr != nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"could not protect node API token: "+tokenErr.Error()}); return }
- n.ApiToken = encryptedToken
+ if !n.SSHMode {
+  encryptedToken, tokenErr := nodetoken.Encrypt(n.ApiToken)
+  if tokenErr != nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"could not protect node API token: "+tokenErr.Error()}); return }
+  n.ApiToken = encryptedToken
+ }
+ if n.SSHMode {
+  encryptedKey, keyErr := nodetoken.Encrypt(n.SSHPrivateKey)
+  if keyErr != nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"could not protect SSH private key"}); return }
+  n.SSHPrivateKey = encryptedKey
+ }
  if err:=nodeDB().Create(&n).Error; err!=nil {c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":err.Error()});return}
  c.JSON(http.StatusOK,gin.H{"success":true,"obj":n})
 }
@@ -140,10 +163,18 @@ func (a *NodeController) update(c *gin.Context) {
  if msg:=validNodeMutation(v,false); msg!="" {c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":msg});return}
  var n model.Node
  if err=nodeDB().First(&n,id).Error; err!=nil {c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"node not found"});return}
+ if v.SSHMode && strings.TrimSpace(v.SSHPrivateKey)=="" && strings.TrimSpace(n.SSHPrivateKey)=="" { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"sshPrivateKey is required when enabling direct SSH on a node without a saved key"}); return }
  n=nodeFromMutation(v,n)
- encryptedToken, tokenErr := nodetoken.Encrypt(n.ApiToken)
- if tokenErr != nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"could not protect node API token: "+tokenErr.Error()}); return }
- n.ApiToken = encryptedToken
+ if !n.SSHMode {
+  encryptedToken, tokenErr := nodetoken.Encrypt(n.ApiToken)
+  if tokenErr != nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"could not protect node API token: "+tokenErr.Error()}); return }
+  n.ApiToken = encryptedToken
+ }
+ if v.SSHPrivateKey!="" {
+  encryptedKey, keyErr := nodetoken.Encrypt(v.SSHPrivateKey)
+  if keyErr != nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"could not protect SSH private key"}); return }
+  n.SSHPrivateKey = encryptedKey
+ }
  if err=nodeDB().Save(&n).Error; err!=nil {c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":err.Error()});return}
  c.JSON(http.StatusOK,gin.H{"success":true,"obj":n})
 }
@@ -244,6 +275,34 @@ func (a *NodeController) createClient(c *gin.Context) {
   c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"client creation currently supports VLESS, VMess and Trojan inbounds"}); return
  }
  if req.Flow!="" && protocol!="vless" { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"flow is only available for VLESS"}); return }
+
+ if n.SSHMode {
+  if req.CreateInbound { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"ساخت Inbound جدید از طریق SSH هنوز پشتیبانی نمی‌شود؛ یک Inbound موجود را انتخاب کنید"}); return }
+  if req.TotalGB!=0 || req.Months!=0 || req.Days!=0 { c.JSON(http.StatusNotImplemented,gin.H{"success":false,"msg":"مدیریت SSH فعلاً فقط حساب نامحدود و بدون انقضا را پشتیبانی می‌کند"}); return }
+  if protocol!="vless" { c.JSON(http.StatusNotImplemented,gin.H{"success":false,"msg":"در حالت SSH فعلاً فقط Inboundهای VLESS پشتیبانی می‌شوند"}); return }
+  ctx,cancel:=context.WithTimeout(c.Request.Context(),30*time.Second); defer cancel()
+  liveInbounds,liveErr:=job.SSHNodeListInbounds(ctx,n)
+  if liveErr!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"خواندن Inboundهای زنده Xray ناموفق بود: "+liveErr.Error()}); return }
+  var selected *job.NativeAgentInbound
+  for i:=range liveInbounds { if liveInbounds[i].Tag==inbound.RemoteTag { selected=&liveInbounds[i]; break } }
+  if selected==nil { c.JSON(http.StatusConflict,gin.H{"success":false,"msg":"Inbound انتخاب‌شده دیگر در Xray وجود ندارد؛ فهرست را بروزرسانی کنید"}); return }
+  var liveSettings struct { Clients []map[string]any `json:"clients"` }
+  if len(selected.Settings)>0 { if err=json.Unmarshal(selected.Settings,&liveSettings);err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"خواندن کاربران Inbound ناموفق بود: "+err.Error()}); return } }
+  for _,existing:=range liveSettings.Clients { if strings.EqualFold(strings.TrimSpace(fmt.Sprint(existing["email"])),req.Email) { c.JSON(http.StatusConflict,gin.H{"success":false,"msg":"این نام کاربری از قبل در Inbound وجود دارد"}); return } }
+  clientID:=uuid.NewString()
+  sshCfg,cfgErr:=job.SSHNodeConfigFromModel(n)
+  if cfgErr!=nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":cfgErr.Error()}); return }
+  if err=job.SSHXrayAddVLESSClient(ctx,sshCfg,selected.Tag,req.Email,clientID,req.Flow);err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"Xray کاربر را نپذیرفت: "+err.Error()}); return }
+  if err=job.SSHNodePersistVLESSClient(ctx,n,selected.Tag,req.Email,clientID,req.Flow,true);err!=nil {
+   rollbackErr:=job.SSHXrayRemoveClient(ctx,sshCfg,selected.Tag,req.Email)
+   msg:="ذخیره دائمی کاربر در config.json ناموفق بود: "+err.Error()
+   if rollbackErr!=nil { msg+="؛ حذف کاربر از حافظه Xray نیز ناموفق بود: "+rollbackErr.Error() }
+   c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":msg}); return
+  }
+  if err=syncSSHNodeSnapshots(ctx,n);err!=nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"کاربر ساخته و در config ذخیره شد، اما بروزرسانی فهرست پنل ناموفق بود: "+err.Error()}); return }
+  c.JSON(http.StatusOK,gin.H{"success":true,"obj":gin.H{"nodeId":id,"inboundId":inbound.RemoteID,"inbound":selected.Tag,"protocol":"vless","port":selected.Port,"email":req.Email,"id":clientID,"credential":clientID}})
+  return
+ }
 
  if n.AgentMode {
   if req.TotalGB!=0 || req.Months!=0 || req.Days!=0 {
@@ -389,6 +448,40 @@ func (a *NodeController) createClient(c *gin.Context) {
 }
 
 // snapshot returns the last successfully synchronized, credential-free view of a node.
+func syncSSHNodeSnapshots(ctx context.Context, n model.Node) error {
+ inbounds,err:=job.SSHNodeListInbounds(ctx,n)
+ if err!=nil { return err }
+ now:=time.Now().UnixMilli()
+ inboundRows:=make([]model.NodeInboundSnapshot,0,len(inbounds))
+ clientMap:=map[string]*model.NodeClientSnapshot{}
+ for _,ib:=range inbounds {
+  remoteID:=job.NativeAgentInboundID(ib.Tag)
+  inboundRows=append(inboundRows,model.NodeInboundSnapshot{NodeID:n.Id,RemoteID:remoteID,Tag:ib.Tag,RemoteTag:ib.Tag,Remark:ib.Tag,Protocol:ib.Protocol,Listen:ib.Listen,Port:ib.Port,Enable:true,LastSyncAt:now})
+  if !strings.EqualFold(ib.Protocol,"vless") { continue }
+  var settings struct { Clients []map[string]any `json:"clients"` }
+  if len(ib.Settings)>0 { if err=json.Unmarshal(ib.Settings,&settings);err!=nil { return fmt.Errorf("decode clients in %s: %w",ib.Tag,err) } }
+  inboundRows[len(inboundRows)-1].ClientCount=len(settings.Clients)
+  for _,cl:=range settings.Clients {
+   email:=strings.ToLower(strings.TrimSpace(fmt.Sprint(cl["email"])))
+   if email=="" || email=="<nil>" { continue }
+   enabled:=true
+   if value,ok:=cl["enable"].(bool);ok { enabled=value }
+   row:=clientMap[email]
+   if row==nil { row=&model.NodeClientSnapshot{NodeID:n.Id,Email:email,Enable:enabled,LastSyncAt:now}; clientMap[email]=row } else { row.Enable=row.Enable||enabled }
+   if expiry,ok:=cl["expiryTime"].(float64);ok && int64(expiry)>row.ExpiryTime { row.ExpiryTime=int64(expiry) }
+  }
+ }
+ clientRows:=make([]model.NodeClientSnapshot,0,len(clientMap))
+ for _,row:=range clientMap { clientRows=append(clientRows,*row) }
+ return nodeDB().Transaction(func(tx *gorm.DB) error {
+  if err:=tx.Where("node_id = ?",n.Id).Delete(&model.NodeInboundSnapshot{}).Error;err!=nil{return err}
+  if err:=tx.Where("node_id = ?",n.Id).Delete(&model.NodeClientSnapshot{}).Error;err!=nil{return err}
+  if len(inboundRows)>0 { if err:=tx.CreateInBatches(&inboundRows,100).Error;err!=nil{return err} }
+  if len(clientRows)>0 { if err:=tx.CreateInBatches(&clientRows,200).Error;err!=nil{return err} }
+  return tx.Model(&model.Node{}).Where("id = ?",n.Id).Updates(map[string]any{"inbound_count":len(inboundRows),"client_count":len(clientRows),"last_sync_at":now,"last_sync_error":""}).Error
+ })
+}
+
 func (a *NodeController) snapshot(c *gin.Context) {
  id, err := strconv.Atoi(c.Param("id"))
  if err != nil || id < 1 {
@@ -399,6 +492,16 @@ func (a *NodeController) snapshot(c *gin.Context) {
  if err = nodeDB().First(&node, id).Error; err != nil {
   c.JSON(http.StatusNotFound, gin.H{"success": false, "msg": "node not found"})
   return
+ }
+ if node.SSHMode {
+  ctx,cancel:=context.WithTimeout(c.Request.Context(),18*time.Second)
+  syncErr:=syncSSHNodeSnapshots(ctx,node)
+  cancel()
+  if syncErr!=nil {
+   _=nodeDB().Model(&model.Node{}).Where("id = ?",id).Update("last_sync_error",syncErr.Error()).Error
+   c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"همگام‌سازی Inboundهای Xray از طریق SSH ناموفق بود: "+syncErr.Error()})
+   return
+  }
  }
  var inbounds []model.NodeInboundSnapshot
  if err = nodeDB().Where("node_id = ?", id).Order("remote_id asc").Find(&inbounds).Error; err != nil {
@@ -470,6 +573,7 @@ func validRemoteEmail(email string) bool {
 
 func (a *NodeController) updateNodeClient(c *gin.Context) {
  n,ok:=a.loadManageableNode(c); if !ok { return }
+ if n.SSHMode { c.JSON(http.StatusNotImplemented,gin.H{"success":false,"msg":"ویرایش حجم، انقضا و وضعیت کاربر در حالت SSH هنوز پشتیبانی نمی‌شود"}); return }
  if n.AgentMode { c.JSON(http.StatusNotImplemented,gin.H{"success":false,"msg":"client update is not yet supported by the current AMIN Node Agent API"}); return }
  email:=strings.ToLower(strings.TrimSpace(c.Param("email")))
  if !validRemoteEmail(email) { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid username"}); return }
@@ -503,6 +607,39 @@ func (a *NodeController) updateNodeClient(c *gin.Context) {
 
 func (a *NodeController) deleteNodeClient(c *gin.Context) {
  n,ok:=a.loadManageableNode(c); if !ok { return }
+ if n.SSHMode {
+  email:=strings.ToLower(strings.TrimSpace(c.Param("email")))
+  if !validRemoteEmail(email) { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid username"}); return }
+  ctx,cancel:=context.WithTimeout(c.Request.Context(),30*time.Second); defer cancel()
+  inbounds,err:=job.SSHNodeListInbounds(ctx,n)
+  if err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"خواندن Inboundهای Xray ناموفق بود: "+err.Error()}); return }
+  cfg,err:=job.SSHNodeConfigFromModel(n)
+  if err!=nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":err.Error()}); return }
+  deleted:=make([]string,0)
+  for _,ib:=range inbounds {
+   if !strings.EqualFold(ib.Protocol,"vless") { continue }
+   var settings struct { Clients []map[string]any `json:"clients"` }
+   if len(ib.Settings)>0 { if err=json.Unmarshal(ib.Settings,&settings);err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"ساختار کاربران Inbound نامعتبر است"}); return } }
+   found:=false
+   clientID:=""
+   clientFlow:=""
+   for _,cl:=range settings.Clients { if strings.EqualFold(strings.TrimSpace(fmt.Sprint(cl["email"])),email) { found=true; clientID=strings.TrimSpace(fmt.Sprint(cl["id"])); clientFlow=strings.TrimSpace(fmt.Sprint(cl["flow"])); break } }
+   if !found { continue }
+   if clientID=="" || clientID=="<nil>" { c.JSON(http.StatusConflict,gin.H{"success":false,"msg":"شناسه UUID کاربر در تنظیمات Inbound موجود نیست؛ حذف امن ممکن نیست"}); return }
+   if err=job.SSHXrayRemoveClient(ctx,cfg,ib.Tag,email);err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"حذف کاربر از Xray ناموفق بود: "+err.Error()}); return }
+   if err=job.SSHNodePersistVLESSClient(ctx,n,ib.Tag,email,"","",false);err!=nil {
+    rollbackErr:=job.SSHXrayAddVLESSClient(ctx,cfg,ib.Tag,email,clientID,clientFlow)
+    msg:="کاربر از حافظه Xray حذف شد اما ذخیره حذف در config.json ناموفق بود: "+err.Error()
+    if rollbackErr!=nil { msg+="؛ بازگردانی کاربر در حافظه Xray نیز ناموفق بود: "+rollbackErr.Error() }
+    c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":msg}); return
+   }
+   deleted=append(deleted,ib.Tag)
+  }
+  if len(deleted)==0 { c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"کاربر در Inboundهای VLESS این نود پیدا نشد"}); return }
+  if err=syncSSHNodeSnapshots(ctx,n);err!=nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"کاربر حذف شد اما بروزرسانی فهرست پنل ناموفق بود: "+err.Error()}); return }
+  c.JSON(http.StatusOK,gin.H{"success":true,"obj":gin.H{"deletedFrom":deleted}})
+  return
+ }
  if n.AgentMode {
   email:=strings.ToLower(strings.TrimSpace(c.Param("email")))
   if !validRemoteEmail(email) { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid username"}); return }
@@ -708,15 +845,17 @@ func buildNativeAgentShareLink(publicHost,nodeName string,ib job.NativeAgentInbo
 func (a *NodeController) nodeClientConfig(c *gin.Context) {
  n, ok := a.loadManageableNode(c)
  if !ok { return }
- if n.AgentMode {
+ if n.AgentMode || n.SSHMode {
   email:=strings.ToLower(strings.TrimSpace(c.Param("email")))
   if !validRemoteEmail(email) { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid username"}); return }
-  if strings.TrimSpace(n.PublicAddress)=="" {
-   c.JSON(http.StatusPreconditionFailed,gin.H{"success":false,"msg":"برای تولید کانفیگ، آدرس عمومی سرور را در ویرایش نود و فیلد «آدرس عمومی اتصال» وارد کنید؛ آدرس 127.0.0.1:18787 فقط تونل مدیریتی است و نباید داخل کانفیگ کاربر قرار بگیرد."}); return
+  if n.AgentMode && strings.TrimSpace(n.PublicAddress)=="" {
+   c.JSON(http.StatusPreconditionFailed,gin.H{"success":false,"msg":"برای تولید کانفیگ Agent، آدرس عمومی اتصال را در تنظیمات نود وارد کنید."}); return
   }
   ctx,cancel:=context.WithTimeout(c.Request.Context(),15*time.Second); defer cancel()
-  inbounds,err:=job.NativeAgentListInbounds(ctx,n)
-  if err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"دریافت Inboundهای زنده Agent ناموفق بود: "+err.Error()}); return }
+  var inbounds []job.NativeAgentInbound
+  var err error
+  if n.SSHMode { inbounds,err=job.SSHNodeListInbounds(ctx,n) } else { inbounds,err=job.NativeAgentListInbounds(ctx,n) }
+  if err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"دریافت Inboundهای زنده نود ناموفق بود: "+err.Error()}); return }
   for _,ib:=range inbounds {
    var settings struct { Clients []map[string]any `json:"clients"` }
    if len(ib.Settings)>0 {
@@ -724,7 +863,9 @@ func (a *NodeController) nodeClientConfig(c *gin.Context) {
    }
    for _,client:=range settings.Clients {
     if !strings.EqualFold(strings.TrimSpace(fmt.Sprint(client["email"])),email) { continue }
-    link,protocol,remark,linkErr:=buildNativeAgentShareLink(n.PublicAddress,n.Name,ib,client,email)
+    publicHost:=strings.TrimSpace(n.PublicAddress)
+    if publicHost=="" { publicHost=n.Address }
+    link,protocol,remark,linkErr:=buildNativeAgentShareLink(publicHost,n.Name,ib,client,email)
     if linkErr!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":linkErr.Error()}); return }
     c.JSON(http.StatusOK,gin.H{"success":true,"obj":gin.H{"email":email,"nodeName":n.Name,"inbound":remark,"protocol":protocol,"port":ib.Port,"link":link}})
     return
