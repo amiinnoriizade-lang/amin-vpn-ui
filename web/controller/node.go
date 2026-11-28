@@ -90,19 +90,26 @@ func validNodeMutation(v nodeMutation, creating bool) string {
  if strings.TrimSpace(v.Name)=="" { return "name is required" }
  if strings.TrimSpace(v.Address)=="" { return "address is required" }
  if v.PublicAddress!="" && !validNodeHost(v.PublicAddress) { return "publicAddress must be a hostname or IP without a URL path" }
- if v.Scheme=="" { v.Scheme="https" }
- if v.Scheme!="http" && v.Scheme!="https" { return "scheme must be http or https" }
- if v.Port<1 || v.Port>65535 { return "port must be between 1 and 65535" }
+ if v.SSHMode {
+  // SSH nodes do not use the remote panel API scheme/port or API token.
+  // Their management endpoint is the SSH host and SSHPort (default 22).
+  if v.AgentMode { return "direct SSH and AMIN Agent modes are mutually exclusive" }
+  if strings.TrimSpace(v.SSHUsername)=="" { return "sshUsername is required for direct SSH nodes" }
+  if v.SSHPort==0 { v.SSHPort=22 }
+  if v.SSHPort<1 || v.SSHPort>65535 { return "sshPort must be between 1 and 65535" }
+  if creating && strings.TrimSpace(v.SSHPrivateKey)=="" { return "sshPrivateKey is required for a new SSH node" }
+  if strings.TrimSpace(v.SSHPrivateKey)!="" && !strings.Contains(v.SSHPrivateKey,"PRIVATE KEY") { return "sshPrivateKey must be an OpenSSH or PEM private key" }
+ } else {
+  if v.Scheme=="" { v.Scheme="https" }
+  if v.Scheme!="http" && v.Scheme!="https" { return "scheme must be http or https" }
+  if v.Port<1 || v.Port>65535 { return "port must be between 1 and 65535" }
+  if creating && strings.TrimSpace(v.ApiToken)=="" { return "apiToken is required" }
+ }
  if strings.ContainsAny(v.Address, "/?#@") { return "address must be a hostname or IP without a URL path" }
  if net.ParseIP(v.Address)==nil {
   u,err:=url.Parse("https://"+v.Address)
   if err!=nil || u.Hostname()=="" || u.User!=nil || u.Path!="" { return "invalid address" }
  }
- if v.SSHMode {
-  if strings.TrimSpace(v.SSHUsername)=="" { return "sshUsername is required for direct SSH nodes" }
-  if v.SSHPort<1 || v.SSHPort>65535 { return "sshPort must be between 1 and 65535" }
-  if creating && strings.TrimSpace(v.SSHPrivateKey)=="" { return "sshPrivateKey is required for a new SSH node" }
- } else if creating && strings.TrimSpace(v.ApiToken)=="" { return "apiToken is required" }
  if v.AgentMode && v.Scheme=="http" && !v.AllowPrivateAddress { return "AMIN Agent over HTTP requires an explicitly trusted private management tunnel; otherwise use HTTPS" }
  if v.TlsVerifyMode!="" && v.TlsVerifyMode!="system" && v.TlsVerifyMode!="insecure" && v.TlsVerifyMode!="pinned" { return "invalid tlsVerifyMode" }
  if v.TlsVerifyMode=="pinned" && len(strings.TrimSpace(v.PinnedCertSha256))!=64 { return "pinned TLS mode requires a SHA-256 certificate fingerprint" }
