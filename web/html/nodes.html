@@ -79,6 +79,10 @@
         <a-alert v-if="selectedNode.agentMode" type="info" show-icon
           message="قابلیت‌ها و محدودیت‌های Agent"
           description="ساخت و حذف کاربر و تولید لینک اتصال پشتیبانی می‌شود. برای دریافت لینک، آدرس عمومی اتصال را در تنظیمات نود وارد کنید. محدودیت حجم، تاریخ انقضا و ویرایش کاربر هنوز در API Agent پیاده‌سازی نشده‌اند." style="margin-bottom:12px"/>
+        <a-alert v-if="selectedNode.sshMode" type="info" show-icon
+          message="مدیریت مستقیم Xray از طریق SSH"
+          description="Inboundهای زنده خوانده می‌شوند؛ ساخت و حذف دائمی کاربر فعلاً برای VLESS فعال است. سهمیه حجم، انقضا و ویرایش وضعیت کاربر هنوز پشتیبانی نمی‌شود." style="margin-bottom:12px"/>
+
         <a-table :columns="inboundColumns" :data-source="nodeSnapshot.inbounds || []" :row-key="r => r.id" :pagination="false" :scroll="{x:700}" size="small">
           <template slot="inboundTag" slot-scope="text,ib">
             <div style="font-weight:700">[[ ib.tag || ib.remoteTag || ib.remark ]]</div>
@@ -302,7 +306,7 @@ const app = new Vue({
  delimiters:['[[',']]'], mixins:[MediaQueryMixin], el:'#app',
  data:{themeSwitcher,pageTitle:'Nodes',pageClass:'',loading:false,saving:false,probingId:null,nodes:[],columns:nodeColumns,modalVisible:false,editing:false,editingId:null,form:emptyNode(),selectedNode:null,nodeSnapshot:{inbounds:[],clients:[]},snapshotLoading:false,clientModalVisible:false,clientSaving:false,clientError:'',credentialModalVisible:false,createdEmail:'',createdCredential:'',createdLink:'',configError:'',configLoading:false,clientForm:{mode:'existing',inboundId:null,port:2053,email:'',flow:'',protocol:'vless'}},
  computed:{
-  selectableInbounds(){return (this.nodeSnapshot.inbounds||[]).filter(ib=>ib.enable!==false&&['vless','vmess','trojan'].includes(String(ib.protocol||'').toLowerCase()));}
+  selectableInbounds(){return (this.nodeSnapshot.inbounds||[]).filter(ib=>ib.enable!==false&&(this.selectedNode&&this.selectedNode.sshMode?String(ib.protocol||'').toLowerCase()==='vless':['vless','vmess','trojan'].includes(String(ib.protocol||'').toLowerCase())));}
  },
  methods:{
   async loadNodes(){this.loading=true;const r=await HttpUtil.get('/panel/api/nodes/list');this.loading=false;if(r&&r.success)this.nodes=r.obj||[];},
