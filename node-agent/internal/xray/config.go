@@ -18,9 +18,8 @@ import (
 var serviceNamePattern = regexp.MustCompile(`^[a-zA-Z0-9_.@-]{1,128}$`)
 var uuidPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
-// ConfigManager owns one fixed Xray config path. All changes are validated by
-// the Xray binary before the live file is replaced, and the service is restarted
-// only after the atomic replacement succeeds.
+// ConfigManager owns one fixed Xray config path. Inbound changes are validated
+// before atomic replacement and service restart; client changes belong to RuntimeManager.
 type ConfigManager struct {
 	Path       string
 	XrayBinary string
@@ -308,136 +307,14 @@ func (m *ConfigManager) DeleteInbound(tag string) error {
 	return m.validateAndApply(cfg)
 }
 
-func (m *ConfigManager) mutateClients(tag string, mutate func(string, []interface{}) ([]interface{}, error)) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	cfg, err := m.read()
-	if err != nil {
-		return err
-	}
-	list, err := inboundList(cfg)
-	if err != nil {
-		return err
-	}
-	found := false
-	for _, item := range list {
-		in, ok := item.(map[string]interface{})
-		if !ok {
-			return errors.New("invalid inbound entry")
-		}
-		if stringField(in, "tag") != tag {
-			continue
-		}
-		found = true
-		protocol := stringField(in, "protocol")
-		settings, ok := in["settings"].(map[string]interface{})
-		if !ok {
-			return errors.New("inbound settings are invalid")
-		}
-		var clients []interface{}
-		if raw, exists := settings["clients"]; exists {
-			clients, ok = raw.([]interface{})
-			if !ok {
-				return errors.New("inbound clients must be an array")
-			}
-		}
-		updated, err := mutate(protocol, clients)
-		if err != nil {
-			return err
-		}
-		settings["clients"] = updated
-	}
-	if !found {
-		return os.ErrNotExist
-	}
-	return m.validateAndApply(cfg)
-}
-
+// AddClient is intentionally disabled: client mutations must go through the
+// RuntimeManager and Xray HandlerService so they never rewrite config or restart Xray.
 func (m *ConfigManager) AddClient(tag string, client map[string]interface{}) error {
-	allowed := map[string]bool{"email": true, "id": true, "level": true, "flow": true, "alterId": true, "security": true, "password": true}
-	for key := range client {
-		if !allowed[key] {
-			return fmt.Errorf("unsupported client field: %s", key)
-		}
-	}
-	email := stringField(client, "email")
-	if email == "" || len(email) > 128 || strings.ContainsAny(email, "\r\n") {
-		return errors.New("client email is required and must be valid")
-	}
-	if len(client) == 0 {
-		return errors.New("client fields are required")
-	}
-	for _, key := range []string{"email", "id", "flow", "security", "password"} {
-		if value, exists := client[key]; exists {
-			if _, ok := value.(string); !ok {
-				return fmt.Errorf("client field %s must be a string", key)
-			}
-		}
-	}
-	for _, key := range []string{"level", "alterId"} {
-		if value, exists := client[key]; exists {
-			if _, ok := value.(float64); !ok {
-				return fmt.Errorf("client field %s must be a number", key)
-			}
-		}
-	}
-	if strings.TrimSpace(email) != email || strings.ContainsAny(email, " \t\r\n") {
-		return errors.New("client email must not contain whitespace")
-	}
-	return m.mutateClients(tag, func(protocol string, clients []interface{}) ([]interface{}, error) {
-		credentialKey := ""
-		switch protocol {
-		case "vless", "vmess":
-			id := stringField(client, "id")
-			if !uuidPattern.MatchString(id) {
-				return nil, errors.New("client id must be a valid UUID for vless/vmess")
-			}
-			credentialKey = "id"
-		case "trojan", "shadowsocks":
-			if stringField(client, "password") == "" {
-				return nil, fmt.Errorf("client password is required for %s", protocol)
-			}
-			credentialKey = "password"
-		default:
-			return nil, errors.New("unsupported inbound protocol for client management")
-		}
-		for _, raw := range clients {
-			existing, ok := raw.(map[string]interface{})
-			if !ok {
-				return nil, errors.New("invalid client entry")
-			}
-			if stringField(existing, "email") == email {
-				return nil, errors.New("client email already exists")
-			}
-			if stringField(existing, credentialKey) == stringField(client, credentialKey) {
-				return nil, fmt.Errorf("client %s already exists", credentialKey)
-			}
-		}
-		return append(clients, client), nil
-	})
+	return errors.New("direct client config mutation is disabled; use RuntimeManager")
 }
 
+// DeleteClient is intentionally disabled for the same reason as AddClient.
+// Legacy static users require an explicit migration/maintenance workflow.
 func (m *ConfigManager) DeleteClient(tag, email string) error {
-	if email == "" || len(email) > 128 || strings.ContainsAny(email, "\r\n") {
-		return errors.New("invalid client email")
-	}
-	return m.mutateClients(tag, func(_ string, clients []interface{}) ([]interface{}, error) {
-		next := make([]interface{}, 0, len(clients))
-		found := false
-		for _, raw := range clients {
-			client, ok := raw.(map[string]interface{})
-			if !ok {
-				return nil, errors.New("invalid client entry")
-			}
-			if stringField(client, "email") == email {
-				found = true
-				continue
-			}
-			next = append(next, raw)
-		}
-		if !found {
-			return nil, os.ErrNotExist
-		}
-		return next, nil
-	})
+	return errors.New("direct client config mutation is disabled; use RuntimeManager")
 }
