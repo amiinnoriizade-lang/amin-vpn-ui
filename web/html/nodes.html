@@ -298,6 +298,8 @@ const app = new Vue({
    try{
     const r=await HttpUtil.get('/panel/api/nodes/snapshot/'+nodeId);
     if(r&&r.success&&this.selectedNode&&this.selectedNode.id===nodeId)this.nodeSnapshot=r.obj||{inbounds:[],clients:[]};
+   }catch(error){
+    console.warn('Unable to refresh selected node snapshot:',error);
    }finally{this.snapshotRefreshing=false;}
   },
   inboundDisplay(ib){return (ib.tag||ib.remoteTag||ib.remark||'Inbound')+' · '+String(ib.protocol||'').toUpperCase()+' · '+ib.port;},
