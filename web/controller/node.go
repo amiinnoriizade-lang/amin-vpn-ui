@@ -163,6 +163,7 @@ func (a *NodeController) update(c *gin.Context) {
  if msg:=validNodeMutation(v,false); msg!="" {c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":msg});return}
  var n model.Node
  if err=nodeDB().First(&n,id).Error; err!=nil {c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"node not found"});return}
+ if v.SSHMode && strings.TrimSpace(v.SSHPrivateKey)=="" && strings.TrimSpace(n.SSHPrivateKey)=="" { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"sshPrivateKey is required when enabling direct SSH on a node without a saved key"}); return }
  n=nodeFromMutation(v,n)
  if !n.SSHMode {
   encryptedToken, tokenErr := nodetoken.Encrypt(n.ApiToken)
