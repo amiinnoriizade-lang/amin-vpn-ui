@@ -62,6 +62,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
         run: |
+          go mod tidy
           mkdir -p dist
           go build -trimpath -ldflags="-s -w" -o dist/amin-node-agent ./cmd/amin-node-agent
       - name: Upload binary
