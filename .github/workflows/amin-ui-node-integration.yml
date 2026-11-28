@@ -8,7 +8,7 @@ on:
     paths:
       - "database/model/node*.go"
       - "web/controller/node.go"
-      - "web/job/node*.go"
+      - "web/job/node*.go"\n      - "web/job/ssh*.go"
       - "web/html/nodes.html"
       - "config/version"
       - ".github/workflows/amin-ui-node-integration.yml"
