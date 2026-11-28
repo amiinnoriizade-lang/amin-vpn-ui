@@ -3,7 +3,8 @@
 Status: implementation in progress; this document defines the release contract and records verified progress. Native node management is not production-ready.
 
 Current implementation branch: `feat/amin-node-grpc-control`.
-Verified commit: `d75049ddec55045672c02ee898db9df42e37d4c5`.
+Latest implementation commit: `c4ff12ef151ebfad0814fceb3d82530612b0f94d`.
+The last fully green CI verification before the static-user tombstone extension was `d75049ddec55045672c02ee898db9df42e37d4c5`; rerun CI for the latest code before considering it verified.
 Node Agent version: `0.3.0`.
 CI run `46150833969`: Go tests, Linux amd64 build, and Linux arm64 build all passed.
 
@@ -64,11 +65,13 @@ A release is blocked until all of these pass:
 ## Verified implementation progress
 
 - Runtime client add/remove now uses Xray HandlerService gRPC AddUser/RemoveUser operations. These paths do not rewrite the Xray config and do not restart Xray.
-- Runtime-created client records are stored in a separate JSON state file with a private directory/file permission policy and atomic replacement.
-- The inbound listing merges saved runtime clients into the config-derived inbound response.
+- Runtime-created client records and static-user deletion tombstones are stored in a separate JSON state file with a private directory/file permission policy, atomic replacement, and directory fsync.
+- The inbound listing merges saved runtime clients into the config-derived inbound response and hides tombstoned or replaced static records.
 - The Xray API port is discovered from the configured HandlerService and the inbound tagged `api`; it is not hardcoded.
 - The agent tracks the Xray systemd MainPID and retries restoring saved runtime clients when the process changes.
 - Direct ConfigManager client mutation methods are disabled to prevent a future caller from accidentally falling back to config rewrite/restart.
+- Static legacy clients can be deleted without editing the Xray config: the Agent persists a tombstone, removes the live user through gRPC, hides it from the list, and reapplies the removal after Xray restarts.
+- Re-creating a username previously tombstoned replaces the old static record with the new runtime-managed credentials.
 - Unit tests cover API port parsing, runtime add/delete behavior with a fake gRPC API, unchanged config bytes, inbound list overlay, persistence, file permissions, validation, and PID-change reconciliation.
 - GitHub Actions built Linux amd64 and arm64 binaries and ran race-enabled Go tests successfully for the verified commit above.
 
@@ -78,7 +81,7 @@ A release is blocked until all of these pass:
 - Quota and expiry enforcement are still not implemented for native Agent nodes.
 - Node enrollment/bootstrap, one-time join command, secure tunnel provisioning/rotation/revocation, and panel-side enrollment UX are not complete.
 - The current node UI still contains legacy Sanaei-compatible behavior for non-Agent nodes.
-- Deletion is currently limited to clients recorded in AMIN runtime state; legacy static clients need an explicit migration/deletion workflow.
+- Legacy static client deletion leaves the original record in the Xray config and relies on a durable tombstone; test restart/reconciliation on the exact Xray version before production use.
 - Runtime state is permission-protected but not encrypted at rest.
 - Inbound creation/deletion still uses config validation and service restart; only client add/delete is no-restart.
 - The panel has not yet been validated end-to-end for node health, user creation/deletion, connection URI generation, and dashboard state.
