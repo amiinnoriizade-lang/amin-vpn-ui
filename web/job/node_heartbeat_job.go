@@ -21,6 +21,7 @@ import (
  "github.com/mhsanaei/3x-ui/v2/database/model"
  "github.com/mhsanaei/3x-ui/v2/logger"
  "github.com/mhsanaei/3x-ui/v2/web/websocket"
+ "github.com/mhsanaei/3x-ui/v2/util/nodetoken"
 )
 
 const nodeHeartbeatTimeout = 4 * time.Second
@@ -46,6 +47,7 @@ func isPublicNodeIP(ip net.IP) bool {
 }
 
 func probeNode(n model.Node) map[string]any {
+ if n.SSHMode { return probeSSHNode(n) }
  if n.AgentMode { return probeNativeAgentNode(n) }
  patch := map[string]any{"last_heartbeat":time.Now().Unix(),"status":"offline","latency_ms":0,"last_error":"","cpu_pct":0,"mem_pct":0,"uptime_secs":uint64(0),"panel_version":"","xray_version":"","xray_state":"","net_up":uint64(0),"net_down":uint64(0)}
  fail := func(err error) map[string]any { patch["last_error"]=err.Error(); return patch }
@@ -93,6 +95,28 @@ func probeNode(n model.Node) map[string]any {
  patch["uptime_secs"]=envelope.Obj.Uptime; patch["panel_version"]=envelope.Obj.PanelVersion
  patch["xray_version"]=envelope.Obj.Xray.Version; patch["xray_state"]=envelope.Obj.Xray.State
  patch["net_up"]=envelope.Obj.NetIO.Up; patch["net_down"]=envelope.Obj.NetIO.Down
+ return patch
+}
+
+
+func probeSSHNode(n model.Node) map[string]any {
+ patch:=map[string]any{"last_heartbeat":time.Now().Unix(),"status":"offline","latency_ms":0,"last_error":"","cpu_pct":0,"mem_pct":0,"uptime_secs":uint64(0),"panel_version":"","agent_version":"","xray_version":"","xray_state":"","net_up":uint64(0),"net_down":uint64(0)}
+ fail:=func(err error) map[string]any { patch["last_error"]=err.Error(); return patch }
+ if n.SSHPort==0 { n.SSHPort=22 }
+ key,err:=nodetoken.Decrypt(n.SSHPrivateKey); if err!=nil { return fail(fmt.Errorf("decrypt SSH private key: %w",err)) }
+ started:=time.Now()
+ // Read-only commands only: no service restart, config write, or user mutation.
+ const command="printf 'xray_state='; systemctl is-active xray 2>/dev/null || true; printf 'xray_version='; xray version 2>/dev/null | head -n 1 || true; printf 'uptime='; awk '{print $1}' /proc/uptime; printf 'mem='; awk '/MemTotal:/{t=$2}/MemAvailable:/{a=$2}END{if(t>0)printf \"%.2f\\n\",(t-a)*100/t}' /proc/meminfo"
+ output,err:=RunSSHNodeCommand(SSHNodeConfig{Address:n.Address,Port:n.SSHPort,Username:n.SSHUsername,PrivateKey:[]byte(key),Timeout:nodeHeartbeatTimeout},command)
+ patch["latency_ms"]=int(time.Since(started).Milliseconds())
+ if err!=nil { return fail(err) }
+ values:=map[string]string{}
+ for _,line:=range strings.Split(string(output),"\\n") { if k,v,ok:=strings.Cut(strings.TrimSpace(line),"=");ok { values[k]=strings.TrimSpace(v) } }
+ if state:=values["xray_state"];state!="" { patch["xray_state"]=state }
+ if version:=values["xray_version"];version!="" { patch["xray_version"]=version }
+ if mem,parseErr:=strconv.ParseFloat(values["mem"],64);parseErr==nil { patch["mem_pct"]=mem }
+ if uptime,parseErr:=strconv.ParseFloat(values["uptime"],64);parseErr==nil && uptime>=0 { patch["uptime_secs"]=uint64(uptime) }
+ patch["status"]="online"
  return patch
 }
 
