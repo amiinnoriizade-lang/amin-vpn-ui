@@ -67,6 +67,8 @@ jobs:
             test -s "../amin-node-agent-linux-$arch"
             file "../amin-node-agent-linux-$arch"
           done
+          cd ..
+          sha256sum vpn-ui-amd64 amin-node-agent-linux-amd64 amin-node-agent-linux-arm64 > SHA256SUMS
 
       - name: Upload experimental amd64 binary
         if: startsWith(github.ref, 'refs/heads/feat/sanaei-') || github.ref == 'refs/heads/feat/amin-native-node-api' || github.ref == 'refs/heads/feat/amin-agent-client-update'
@@ -77,6 +79,7 @@ jobs:
             vpn-ui-amd64
             amin-node-agent-linux-amd64
             amin-node-agent-linux-arm64
+            SHA256SUMS
           if-no-files-found: error
           retention-days: 14
 
@@ -96,6 +99,7 @@ jobs:
             vpn-ui-amd64
             amin-node-agent-linux-amd64
             amin-node-agent-linux-arm64
+            SHA256SUMS
           make_latest: true
           generate_release_notes: true
 
