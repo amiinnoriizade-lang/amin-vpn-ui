@@ -289,6 +289,8 @@ func (m *RuntimeManager) ListInbounds() ([]map[string]interface{}, error) {
 	}
 	deleted := make(map[string]bool, len(m.state.Deleted))
 	for _, item := range m.state.Deleted { deleted[runtimeKey(item.Tag, strings.ToLower(item.Email))] = true }
+	managed := make(map[string]bool, len(m.state.Clients))
+	for _, item := range m.state.Clients { managed[runtimeKey(item.Tag, strings.ToLower(stringField(item.Client, "email")))] = true }
 	for _, in := range inbounds {
 		settings, ok := in["settings"].(map[string]interface{})
 		if !ok { continue }
@@ -296,7 +298,10 @@ func (m *RuntimeManager) ListInbounds() ([]map[string]interface{}, error) {
 		filtered := make([]interface{}, 0, len(clients))
 		for _, raw := range clients {
 			existing, ok := raw.(map[string]interface{})
-			if ok && deleted[runtimeKey(stringField(in,"tag"), strings.ToLower(stringField(existing,"email")))] { continue }
+			if ok {
+				key := runtimeKey(stringField(in,"tag"), strings.ToLower(stringField(existing,"email")))
+				if deleted[key] || managed[key] { continue }
+			}
 			filtered = append(filtered, raw)
 		}
 		settings["clients"] = filtered
