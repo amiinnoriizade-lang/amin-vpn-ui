@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - "feat/amin-native-node-api"
+      - "feat/amin-node-grpc-control"
     paths:
       - "node-agent/**"
       - ".github/workflows/amin-node-agent.yml"
@@ -34,7 +35,9 @@ jobs:
           gofmt -w .
           test -z "$(gofmt -l .)"
       - name: Run tests
-        run: go test -race ./...
+        run: |
+          go mod tidy
+          go test -race ./...
 
   build:
     name: Build Linux ${{ matrix.goarch }}
