@@ -159,3 +159,26 @@ func TestDeleteStaticClientUsesLiveAPIAndTombstoneWithoutConfigRewrite(t *testin
 	if err:=m.reconcileForPID(222); err!=nil { t.Fatal(err) }
 	if len(api.removed)!=2 { t.Fatalf("deleted static client was not re-applied after Xray restart: %#v",api.removed) }
 }
+
+func TestRuntimeClientCanReplaceTombstonedStaticIdentity(t *testing.T) {
+	manager, configPath, _ := runtimeTestManager(t)
+	cfg, err := manager.read()
+	if err != nil { t.Fatal(err) }
+	inbounds, err := inboundList(cfg)
+	if err != nil { t.Fatal(err) }
+	settings:=inbounds[1].(map[string]interface{})["settings"].(map[string]interface{})
+	settings["clients"]=[]interface{}{map[string]interface{}{"email":"reuse-me","id":"00000000-0000-4000-8000-000000000130"}}
+	data,err:=json.Marshal(cfg)
+	if err!=nil { t.Fatal(err) }
+	if err:=os.WriteFile(configPath,data,0600);err!=nil {t.Fatal(err)}
+	api:=&fakeRuntimeAPI{}
+	m:=&RuntimeManager{config:manager,api:api,path:filepath.Join(t.TempDir(),"state.json"),state:runtimeState{Version:1,Clients:[]runtimeClient{},Deleted:[]runtimeTombstone{}}}
+	if err:=m.load();err!=nil {t.Fatal(err)}
+	if err:=m.DeleteClient("edge","reuse-me");err!=nil {t.Fatal(err)}
+	newClient:=map[string]interface{}{"email":"reuse-me","id":"00000000-0000-4000-8000-000000000131"}
+	if err:=m.AddClient("edge",newClient);err!=nil {t.Fatal(err)}
+	listed,err:=m.ListInbounds()
+	if err!=nil {t.Fatal(err)}
+	clients:=listed[1]["settings"].(map[string]interface{})["clients"].([]interface{})
+	if len(clients)!=1 || stringField(clients[0].(map[string]interface{}),"id")!="00000000-0000-4000-8000-000000000131" {t.Fatalf("runtime credentials did not replace static identity: %#v",clients)}
+}
