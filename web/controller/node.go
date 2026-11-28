@@ -845,11 +845,12 @@ func (a *NodeController) nodeClientConfig(c *gin.Context) {
  if n.AgentMode || n.SSHMode {
   email:=strings.ToLower(strings.TrimSpace(c.Param("email")))
   if !validRemoteEmail(email) { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid username"}); return }
-  if strings.TrimSpace(n.PublicAddress)=="" {
-   c.JSON(http.StatusPreconditionFailed,gin.H{"success":false,"msg":"برای تولید کانفیگ، آدرس عمومی سرور را در ویرایش نود و فیلد «آدرس عمومی اتصال» وارد کنید؛ آدرس 127.0.0.1:18787 فقط تونل مدیریتی است و نباید داخل کانفیگ کاربر قرار بگیرد."}); return
+  if n.AgentMode && strings.TrimSpace(n.PublicAddress)=="" {
+   c.JSON(http.StatusPreconditionFailed,gin.H{"success":false,"msg":"برای تولید کانفیگ Agent، آدرس عمومی اتصال را در تنظیمات نود وارد کنید."}); return
   }
   ctx,cancel:=context.WithTimeout(c.Request.Context(),15*time.Second); defer cancel()
   var inbounds []job.NativeAgentInbound
+  var err error
   if n.SSHMode { inbounds,err=job.SSHNodeListInbounds(ctx,n) } else { inbounds,err=job.NativeAgentListInbounds(ctx,n) }
   if err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"دریافت Inboundهای زنده نود ناموفق بود: "+err.Error()}); return }
   for _,ib:=range inbounds {
