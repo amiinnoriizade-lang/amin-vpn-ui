@@ -384,11 +384,6 @@ func (m *RuntimeManager) Close() error {
 
 
 func (m *RuntimeManager) ReconcileIfChanged() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.api == nil {
-		return errors.New("Xray live API is unavailable")
-	}
 	out, err := exec.Command("systemctl", "show", m.config.Service, "--property=MainPID", "--value").Output()
 	if err != nil {
 		return fmt.Errorf("read Xray MainPID: %w", err)
@@ -396,6 +391,18 @@ func (m *RuntimeManager) ReconcileIfChanged() error {
 	pid, err := strconv.Atoi(strings.TrimSpace(string(out)))
 	if err != nil || pid <= 0 {
 		return errors.New("Xray service does not have a running MainPID")
+	}
+	return m.reconcileForPID(pid)
+}
+
+func (m *RuntimeManager) reconcileForPID(pid int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.api == nil {
+		return errors.New("Xray live API is unavailable")
+	}
+	if pid <= 0 {
+		return errors.New("invalid Xray MainPID")
 	}
 	if pid == m.state.CorePID {
 		return nil
