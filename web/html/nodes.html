@@ -158,6 +158,7 @@
   <a-spin :spinning="configLoading">
     <a-alert v-if="createdLink" type="success" show-icon message="کانفیگ با موفقیت از تنظیمات زنده Xray ساخته شد" style="margin-bottom:8px"/>
     <a-textarea v-if="createdLink" :value="createdLink" :rows="4" readonly/>
+    <div v-if="createdQRCode" style="display:flex;justify-content:center;margin:12px 0"><img :src="createdQRCode" alt="QR کانفیگ اتصال" width="256" height="256" style="max-width:100%;height:auto;border:8px solid white;border-radius:6px"/></div>
     <a-button v-if="createdLink" icon="copy" type="primary" style="margin-top:8px" @click="copyCreatedLink">کپی کانفیگ</a-button>
     <a-alert v-if="configError" type="error" show-icon :message="configError" style="margin-top:8px"/>
     <a-button v-if="configError" icon="reload" :loading="configLoading" style="margin-top:8px" @click="fetchCreatedConfig">تلاش مجدد برای دریافت کانفیگ</a-button>
@@ -270,7 +271,7 @@ const nodeColumns = [
 function emptyNode(){return {agentMode:false,name:'',remark:'',scheme:'https',address:'',publicAddress:'',port:2053,basePath:'',apiToken:'',enable:true,allowPrivateAddress:false,tlsVerifyMode:'system',pinnedCertSha256:'',inboundSyncMode:'all',inboundTags:'',outboundTag:'',guid:'',parentGuid:'',transitive:false};}
 const app = new Vue({
  delimiters:['[[',']]'], mixins:[MediaQueryMixin], el:'#app',
- data:{themeSwitcher,pageTitle:'Nodes',pageClass:'',loading:false,saving:false,probingId:null,nodes:[],columns:nodeColumns,modalVisible:false,editing:false,editingId:null,form:emptyNode(),selectedNode:null,nodeSnapshot:{inbounds:[],clients:[]},snapshotLoading:false,snapshotRefreshing:false,clientModalVisible:false,clientSaving:false,clientError:'',credentialModalVisible:false,createdEmail:'',createdCredential:'',createdLink:'',configError:'',configLoading:false,clientForm:{mode:'existing',inboundId:null,port:2053,email:'',flow:'',protocol:'vless'},nodeClientEditVisible:false,nodeClientEditSaving:false,nodeClientEditForm:{email:'',id:'',password:'',flow:'',security:'',level:null,alterId:null}},
+ data:{themeSwitcher,pageTitle:'Nodes',pageClass:'',loading:false,saving:false,probingId:null,nodes:[],columns:nodeColumns,modalVisible:false,editing:false,editingId:null,form:emptyNode(),selectedNode:null,nodeSnapshot:{inbounds:[],clients:[]},snapshotLoading:false,snapshotRefreshing:false,clientModalVisible:false,clientSaving:false,clientError:'',credentialModalVisible:false,createdEmail:'',createdCredential:'',createdLink:'',createdQRCode:'',configError:'',configLoading:false,clientForm:{mode:'existing',inboundId:null,port:2053,email:'',flow:'',protocol:'vless'},nodeClientEditVisible:false,nodeClientEditSaving:false,nodeClientEditForm:{email:'',id:'',password:'',flow:'',security:'',level:null,alterId:null}},
  computed:{
   selectableInbounds(){return (this.nodeSnapshot.inbounds||[]).filter(ib=>ib.enable!==false&&['vless','vmess','trojan'].includes(String(ib.protocol||'').toLowerCase()));},
   onlineNodeClientCount(){return (this.nodeSnapshot.clients||[]).filter(cl=>cl.online).length;}
@@ -347,11 +348,11 @@ const app = new Vue({
   },
   async fetchCreatedConfig(){
    if(!this.selectedNode||!this.createdEmail)return;
-   this.configLoading=true;this.configError='';this.createdLink='';
+   this.configLoading=true;this.configError='';this.createdLink='';this.createdQRCode='';
    try{
     const r=await HttpUtil.get('/panel/api/nodes/clients/config/'+this.selectedNode.id+'/'+encodeURIComponent(this.createdEmail));
     if(!r||!r.success||!r.obj||!r.obj.link)throw new Error(this.responseMessage(r)||'سرور لینک اتصال را برنگرداند');
-    this.createdLink=r.obj.link;
+    this.createdLink=r.obj.link;this.createdQRCode=r.obj.qrCode||'';
    }catch(e){this.configError=this.responseMessage(e);}
    finally{this.configLoading=false;}
   },
