@@ -121,7 +121,7 @@ func (a *NodeController) get(c *gin.Context) {
  c.JSON(http.StatusOK,gin.H{"success":true,"obj":n})
 }
 func nodeFromMutation(v nodeMutation, old model.Node) model.Node {
- old.Name=strings.TrimSpace(v.Name); old.Remark=v.Remark; old.AgentMode=v.AgentMode; old.SSHMode=v.SSHMode; old.SSHUsername=strings.TrimSpace(v.SSHUsername); old.SSHPort=v.SSHPort; old.Scheme=v.Scheme; if old.Scheme=="" {old.Scheme="https"}
+ old.Name=strings.TrimSpace(v.Name); old.Remark=v.Remark; old.AgentMode=v.AgentMode; old.SSHMode=v.SSHMode; old.SSHUsername=strings.TrimSpace(v.SSHUsername); old.SSHPort=v.SSHPort; if old.SSHPort==0 { old.SSHPort=22 }; old.Scheme=v.Scheme; if old.Scheme=="" {old.Scheme="https"}
  old.Address=strings.TrimSpace(v.Address); old.PublicAddress=strings.TrimSpace(v.PublicAddress); old.Port=v.Port; old.BasePath=strings.TrimSpace(v.BasePath)
  if v.ApiToken!="" {old.ApiToken=v.ApiToken}
  if v.SSHPrivateKey!="" {old.SSHPrivateKey=v.SSHPrivateKey}
@@ -136,9 +136,11 @@ func (a *NodeController) add(c *gin.Context) {
  if err:=c.ShouldBind(&v); err!=nil {c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid JSON"});return}
  if msg:=validNodeMutation(v,true); msg!="" {c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":msg});return}
  n:=nodeFromMutation(v,model.Node{})
- encryptedToken, tokenErr := nodetoken.Encrypt(n.ApiToken)
- if tokenErr != nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"could not protect node API token: "+tokenErr.Error()}); return }
- n.ApiToken = encryptedToken
+ if !n.SSHMode {
+  encryptedToken, tokenErr := nodetoken.Encrypt(n.ApiToken)
+  if tokenErr != nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"could not protect node API token: "+tokenErr.Error()}); return }
+  n.ApiToken = encryptedToken
+ }
  if n.SSHMode {
   encryptedKey, keyErr := nodetoken.Encrypt(n.SSHPrivateKey)
   if keyErr != nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"could not protect SSH private key"}); return }
