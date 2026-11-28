@@ -10,6 +10,16 @@ go test -race ./...
 go build -trimpath -ldflags="-s -w" -o amin-node-agent ./cmd/amin-node-agent
 ```
 
+## Live smoke test on a node
+
+After installing the candidate Agent and confirming its service is running, execute this on the Agent host as root:
+
+```sh
+bash node-agent/scripts/smoke-test-live.sh
+```
+
+The script reads the existing root-owned `agent.env`, authenticates to the local Agent API, checks capabilities/system/inbounds, creates one uniquely named disposable client on the first supported VLESS/VMess/Trojan inbound, confirms it appears in the live list, deletes it, confirms it disappears, and compares the Xray systemd MainPID before and after. It fails if the installed Agent does not advertise live client management. It never prints the bearer token or generated credentials. It does not create an inbound or restart Xray.
+
 ## Configure and run
 
 The agent requires a high-entropy bearer token of at least 32 characters:
