@@ -73,8 +73,6 @@ except Exception as e:
     sys.exit(1)
 `
 	command:="python3 -c '"+strings.ReplaceAll(script,"'","'\\''")+"'"
-	callCtx,cancel:=context.WithTimeout(ctx,25*time.Second)
-	defer cancel()
 	_,err=RunSSHNodeCommandInput(cfg,command,payload)
 	if err!=nil { return fmt.Errorf("persist VLESS client in Xray config: %w",err) }
 	return nil
