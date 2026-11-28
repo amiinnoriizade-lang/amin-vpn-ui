@@ -3,8 +3,9 @@
 Status: implementation in progress; this document defines the release contract and records verified progress. Native node management is not production-ready.
 
 Current implementation branch: `feat/amin-node-grpc-control`.
-Latest implementation commit: `c4ff12ef151ebfad0814fceb3d82530612b0f94d`.
-The last fully green CI verification before the static-user tombstone extension was `d75049ddec55045672c02ee898db9df42e37d4c5`; rerun CI for the latest code before considering it verified.
+Latest implementation commit: `1480e95b025714ef60136e2af5966ef51d372e40`.
+Latest test commit: `a635e832aa1fd1ca004b3dafa15c72f13913bb07`.
+Latest CI run `46151387077`: Go race tests, Linux amd64 build, and Linux arm64 build all passed.
 Node Agent version: `0.3.0`.
 CI run `46150833969`: Go tests, Linux amd64 build, and Linux arm64 build all passed.
 
