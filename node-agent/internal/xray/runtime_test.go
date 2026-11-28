@@ -106,3 +106,24 @@ func TestRuntimeReconcilesOnlyWhenCorePIDChanges(t *testing.T) {
 	if len(api.added) != 1 || api.added[0] != "edge:persisted" { t.Fatalf("changed Xray PID did not restore clients: %#v", api.added) }
 	if m.state.CorePID != 101 { t.Fatalf("saved core PID=%d, want 101", m.state.CorePID) }
 }
+
+func TestValidateRuntimeClient(t *testing.T) {
+	tests := []struct {
+		name, proto string
+		client map[string]interface{}
+		wantErr bool
+	}{
+		{"valid vless","vless",map[string]interface{}{"email":"a","id":"00000000-0000-4000-8000-000000000126"},false},
+		{"bad UUID","vless",map[string]interface{}{"email":"a","id":"bad"},true},
+		{"missing password","trojan",map[string]interface{}{"email":"a"},true},
+		{"unknown field","vless",map[string]interface{}{"email":"a","id":"00000000-0000-4000-8000-000000000127","admin":true},true},
+		{"numeric string field","vless",map[string]interface{}{"email":"a","id":"00000000-0000-4000-8000-000000000128","flow":12},true},
+		{"unsupported protocol","socks",map[string]interface{}{"email":"a"},true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name,func(t *testing.T) {
+			_,err:=validateRuntimeClient(tt.proto,tt.client)
+			if (err!=nil)!=tt.wantErr { t.Fatalf("error=%v wantErr=%v",err,tt.wantErr) }
+		})
+	}
+}
