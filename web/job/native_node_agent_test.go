@@ -64,6 +64,13 @@ func TestNativeAgentRequestsUseBearerAndExpectedRoutes(t *testing.T) {
 			}
 			w.WriteHeader(http.StatusCreated)
 			_, _ = w.Write([]byte(`{"success":true,"msg":"client created"}`))
+		case r.Method == http.MethodPut && r.URL.Path == "/api/v1/inbounds/test-inbound/clients" && r.URL.Query().Get("email") == "test-user":
+			body := make([]byte, r.ContentLength)
+			_, _ = r.Body.Read(body)
+			if !strings.Contains(string(body), `"flow":"xtls-rprx-vision"`) {
+				t.Errorf("client update body = %s", body)
+			}
+			_, _ = w.Write([]byte(`{"success":true,"msg":"client updated"}`))
 		case r.Method == http.MethodDelete && r.URL.Path == "/api/v1/inbounds/test-inbound/clients" && r.URL.Query().Get("email") == "test-user":
 			_, _ = w.Write([]byte(`{"success":true,"msg":"client deleted"}`))
 		default:
@@ -96,11 +103,14 @@ func TestNativeAgentRequestsUseBearerAndExpectedRoutes(t *testing.T) {
 	if err := NativeAgentCreateClient(context.Background(), node, "test-inbound", map[string]any{"email": "test-user", "id": "00000000-0000-4000-8000-000000000001"}); err != nil {
 		t.Fatalf("create client: %v", err)
 	}
+	if err := NativeAgentUpdateClient(context.Background(), node, "test-inbound", "test-user", map[string]any{"flow":"xtls-rprx-vision"}); err != nil {
+		t.Fatalf("update client: %v", err)
+	}
 	if err := NativeAgentDeleteClient(context.Background(), node, "test-inbound", "test-user"); err != nil {
 		t.Fatalf("delete client: %v", err)
 	}
-	if requests != 3 {
-		t.Fatalf("received %d requests, want 3", requests)
+	if requests != 4 {
+		t.Fatalf("received %d requests, want 4", requests)
 	}
 }
 
@@ -228,5 +238,31 @@ func TestNativeAgentInboundHasClientReadsLiveXraySettings(t *testing.T) {
 
  if _, err = NativeAgentInboundHasClient(context.Background(), node, "missing-inbound", "amin-user-01"); err == nil {
   t.Fatal("expected missing inbound to be reported")
+ }
+}
+
+func TestNativeAgentQueryUserTrafficUsesAuthenticatedStatsEndpoint(t *testing.T) {
+ const token = "test-node-token-with-sufficient-length"
+ server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+  if r.Method != http.MethodGet || r.URL.Path != "/api/v1/stats" {
+   http.Error(w, "unexpected route", http.StatusNotFound)
+   return
+  }
+  if got := r.Header.Get("Authorization"); got != "Bearer "+token {
+   http.Error(w, "unauthorized", http.StatusUnauthorized)
+   return
+  }
+  _, _ = w.Write([]byte(`{"success":true,"obj":[{"email":"alice@example.com","up":1200,"down":3400}]}`))
+ }))
+ defer server.Close()
+ host, portText, err := net.SplitHostPort(strings.TrimPrefix(server.URL, "http://"))
+ if err != nil { t.Fatal(err) }
+ var port int
+ if _, err := fmt.Sscanf(portText, "%d", &port); err != nil { t.Fatal(err) }
+ node := model.Node{Address:host,Port:port,Scheme:"http",ApiToken:token,AgentMode:true,AllowPrivateAddress:true}
+ got, err := NativeAgentQueryUserTraffic(context.Background(), node)
+ if err != nil { t.Fatalf("query native Agent traffic: %v", err) }
+ if len(got)!=1 || got[0].Email!="alice@example.com" || got[0].Up!=1200 || got[0].Down!=3400 {
+  t.Fatalf("unexpected traffic response: %#v", got)
  }
 }

@@ -67,6 +67,27 @@ func decodeNativeAgentObject(raw []byte, target any) error {
 	return nil
 }
 
+type NativeAgentUserTraffic struct {
+	Email string `json:"email"`
+	Up int64 `json:"up"`
+	Down int64 `json:"down"`
+	Online bool `json:"online"`
+}
+
+// NativeAgentQueryUserTraffic fetches cumulative Xray StatsService counters.
+// It does not reset counters; rate calculation remains panel-side and per node.
+func NativeAgentQueryUserTraffic(ctx context.Context, n model.Node) ([]NativeAgentUserTraffic, error) {
+	raw, err := nodeRequestBody(ctx, n, http.MethodGet, "api/v1/stats", nil)
+	if err != nil {
+		return nil, fmt.Errorf("query AMIN Agent traffic stats: %w", err)
+	}
+	var traffic []NativeAgentUserTraffic
+	if err := decodeNativeAgentObject(raw, &traffic); err != nil {
+		return nil, fmt.Errorf("decode AMIN Agent traffic stats: %w", err)
+	}
+	return traffic, nil
+}
+
 func NativeAgentListInbounds(ctx context.Context, n model.Node) ([]NativeAgentInbound, error) {
  raw, err := nodeRequestBody(ctx, n, http.MethodGet, "api/v1/inbounds", nil)
  if err != nil {
@@ -146,6 +167,22 @@ func NativeAgentInboundHasClient(ctx context.Context, n model.Node, tag, email s
  return false, fmt.Errorf("inbound %q is no longer present on AMIN Agent", tag)
 }
 
+// NativeAgentUpdateClient applies a validated, protocol-specific patch to one
+// client without replacing its other credentials or Xray settings.
+func NativeAgentUpdateClient(ctx context.Context, n model.Node, tag, email string, patch map[string]any) error {
+	tag = strings.TrimSpace(tag)
+	email = strings.TrimSpace(email)
+	if tag == "" || email == "" || len(patch) == 0 {
+		return fmt.Errorf("inbound tag, client email and at least one update field are required")
+	}
+	body, err := json.Marshal(patch)
+	if err != nil { return fmt.Errorf("encode AMIN Agent client update: %w", err) }
+	endpoint := "api/v1/inbounds/" + url.PathEscape(tag) + "/clients?email=" + url.QueryEscape(email)
+	_, err = nodeRequestBody(ctx, n, http.MethodPut, endpoint, body)
+	if err != nil { return fmt.Errorf("AMIN Agent client update failed: %w", err) }
+	return nil
+}
+
 func NativeAgentDeleteClient(ctx context.Context, n model.Node, tag, email string) error {
  if strings.TrimSpace(tag)=="" || strings.TrimSpace(email)=="" { return fmt.Errorf("inbound tag and client email are required") }
  endpoint := "api/v1/inbounds/" + url.PathEscape(tag) + "/clients?email=" + url.QueryEscape(email)
@@ -168,7 +205,7 @@ func nativeClientEnabled(enabled *bool) bool {
 	return enabled == nil || *enabled
 }
 
-func syncNativeAgentNode(n model.Node, now int64) ([]nodeClientDelta, []string, map[string]int64, error) {
+func syncNativeAgentNode(n model.Node, now int64, previous map[string]nodeCounterSample) ([]nodeClientDelta, []string, map[string]int64, error) {
  ctx,cancel:=context.WithTimeout(context.Background(),nodeTrafficRequestTimeout)
  defer cancel()
  inbounds,err:=NativeAgentListInbounds(ctx,n)
@@ -204,20 +241,77 @@ func syncNativeAgentNode(n model.Node, now int64) ([]nodeClientDelta, []string, 
    if client.ExpiryTime>item.ExpiryTime { item.ExpiryTime=client.ExpiryTime }
   }
  }
+ // Read cumulative per-user Xray counters. StatsService is optional; if it is
+ // not configured, retain a useful inbound/client snapshot and record the
+ // reason rather than fabricating zero-speed samples.
+ stats, statsErr := NativeAgentQueryUserTraffic(ctx, n)
+ if statsErr == nil {
+  for _, sample := range stats {
+   email := strings.ToLower(strings.TrimSpace(sample.Email))
+   if client := clients[email]; client != nil {
+    if sample.Up >= 0 { client.Up = sample.Up }
+    if sample.Down >= 0 { client.Down = sample.Down }
+    client.Online = sample.Online
+   }
+  }
+ } else {
+  // Preserve the last known cumulative usage if StatsService is temporarily
+  // unavailable; never replace real historical usage with fabricated zeros.
+  var prior []model.NodeClientSnapshot
+  if err := database.GetDB().Where("node_id = ?", n.Id).Find(&prior).Error; err == nil {
+   for _, old := range prior {
+    if client := clients[strings.ToLower(strings.TrimSpace(old.Email))]; client != nil {
+     client.Up, client.Down, client.Total = old.Up, old.Down, old.Total
+    }
+   }
+  }
+ }
+ aggregates := make(map[string]*nodeClientAggregate, len(clients))
+ for email, client := range clients {
+  aggregates[email] = &nodeClientAggregate{
+   Up:client.Up, Down:client.Down, Total:client.Total,
+   ExpiryTime:client.ExpiryTime, Enable:client.Enable,
+   LastOnline:client.LastOnline, Online:client.Online,
+  }
+ }
+ var deltas []nodeClientDelta
+ rates := make(map[string]nodeClientDelta)
+ if statsErr == nil {
+  next, calculated := nodeSpeedDelta(previous, aggregates, now)
+  deltas = calculated
+  for _, rate := range deltas { rates[rate.Email] = rate }
+  // The caller supplies a per-node map. Replace its contents after a valid
+  // stats sample so an unavailable StatsService cannot create a false spike.
+  for email := range previous { delete(previous, email) }
+  for email, sample := range next { previous[email] = sample }
+ }
+ onlineEmails := make([]string,0,len(clients))
+ for email,client := range clients { if client.Online { onlineEmails=append(onlineEmails,email) } }
  clientRows:=make([]model.NodeClientSnapshot,0,len(clients))
- for _,client:=range clients { clientRows=append(clientRows,*client) }
+ for email,client:=range clients {
+  client.Total = client.Up + client.Down
+  if rate,ok:=rates[email]; ok {
+   // nodeSpeedDelta returns bytes per configured 5-second sample for the
+   // existing websocket contract; snapshots expose conventional bytes/second.
+   client.UpSpeed=rate.Up*1000/nodeTrafficPollIntervalMs
+   client.DownSpeed=rate.Down*1000/nodeTrafficPollIntervalMs
+  }
+  clientRows=append(clientRows,*client)
+ }
  db:=database.GetDB()
  err=db.Transaction(func(tx *gorm.DB) error {
   if e:=tx.Where("node_id = ?",n.Id).Delete(&model.NodeInboundSnapshot{}).Error;e!=nil{return e}
   if e:=tx.Where("node_id = ?",n.Id).Delete(&model.NodeClientSnapshot{}).Error;e!=nil{return e}
   if len(rows)>0 { if e:=tx.CreateInBatches(&rows,100).Error;e!=nil{return e} }
   if len(clientRows)>0 { if e:=tx.CreateInBatches(&clientRows,200).Error;e!=nil{return e} }
+  lastErr := ""
+  if statsErr != nil { lastErr = "traffic stats unavailable: " + statsErr.Error() }
   return tx.Model(&model.Node{}).Where("id = ?",n.Id).Updates(map[string]any{
-   "inbound_count":len(rows),"client_count":len(clientRows),"last_sync_at":now,"last_sync_error":"",
+   "inbound_count":len(rows),"client_count":len(clientRows),"last_sync_at":now,"last_sync_error":lastErr,
   }).Error
  })
  if err!=nil { return nil,nil,nil,err }
- return []nodeClientDelta{},[]string{},map[string]int64{},nil
+ return deltas,onlineEmails,map[string]int64{},nil
 }
 
 func probeNativeAgentNode(n model.Node) map[string]any {

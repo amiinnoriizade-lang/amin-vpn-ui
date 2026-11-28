@@ -29,6 +29,8 @@ type NodeClientSnapshot struct {
  Email string `json:"email" gorm:"size:255;uniqueIndex:idx_node_client_email,priority:2"`
  Up int64 `json:"up"`
  Down int64 `json:"down"`
+ UpSpeed int64 `json:"upSpeed" gorm:"not null;default:0"`
+ DownSpeed int64 `json:"downSpeed" gorm:"not null;default:0"`
  Total int64 `json:"total"`
  ExpiryTime int64 `json:"expiryTime"`
  Enable bool `json:"enable"`

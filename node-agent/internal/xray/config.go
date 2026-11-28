@@ -361,7 +361,7 @@ func (m *ConfigManager) AddClient(tag string, client map[string]interface{}) err
 		}
 	}
 	email := stringField(client, "email")
-	if email == "" || len(email) > 128 || strings.ContainsAny(email, "\r\n") {
+	if !validClientEmail(email) {
 		return errors.New("client email is required and must be valid")
 	}
 	if len(client) == 0 {
@@ -417,8 +417,100 @@ func (m *ConfigManager) AddClient(tag string, client map[string]interface{}) err
 	})
 }
 
+// UpdateClient applies a restricted patch to one existing Xray client while
+// preserving all credentials and settings not explicitly changed by the caller.
+func validClientEmail(email string) bool {
+	if email == "" || len(email) > 128 || strings.TrimSpace(email) != email {
+		return false
+	}
+	for _, r := range email {
+		if r == '\r' || r == '\n' || r == ' ' || r == '\t' {
+			return false
+		}
+	}
+	return true
+}
+
+func (m *ConfigManager) UpdateClient(tag, email string, patch map[string]interface{}) error {
+	if !validClientEmail(email) {
+		return errors.New("invalid client email")
+	}
+	allowed := map[string]bool{"id": true, "password": true, "flow": true, "level": true, "alterId": true, "security": true}
+	if len(patch) == 0 {
+		return errors.New("at least one client field must be updated")
+	}
+	for key, value := range patch {
+		if !allowed[key] {
+			return fmt.Errorf("unsupported client update field: %s", key)
+		}
+		switch key {
+		case "id", "password", "flow", "security":
+			if _, ok := value.(string); !ok {
+				return fmt.Errorf("client field %s must be a string", key)
+			}
+		case "level", "alterId":
+			if _, ok := value.(float64); !ok {
+				return fmt.Errorf("client field %s must be a number", key)
+			}
+		}
+	}
+	return m.mutateClients(tag, func(protocol string, clients []interface{}) ([]interface{}, error) {
+		next := make([]interface{}, len(clients))
+		copy(next, clients)
+		found := false
+		for i, raw := range next {
+			client, ok := raw.(map[string]interface{})
+			if !ok {
+				return nil, errors.New("invalid client entry")
+			}
+			if !strings.EqualFold(stringField(client, "email"), email) {
+				continue
+			}
+			found = true
+			updated := make(map[string]interface{}, len(client)+len(patch))
+			for key, value := range client { updated[key] = value }
+			for key, value := range patch { updated[key] = value }
+			credentialKey := ""
+			switch protocol {
+			case "vless", "vmess":
+				if !uuidPattern.MatchString(stringField(updated, "id")) {
+					return nil, errors.New("client id must be a valid UUID for vless/vmess")
+				}
+				if _, exists := updated["password"]; exists {
+					return nil, errors.New("password is not valid for vless/vmess clients")
+				}
+				credentialKey = "id"
+			case "trojan", "shadowsocks":
+				if stringField(updated, "password") == "" {
+					return nil, fmt.Errorf("client password is required for %s", protocol)
+				}
+				if _, exists := updated["id"]; exists {
+					return nil, fmt.Errorf("id is not valid for %s clients", protocol)
+				}
+				credentialKey = "password"
+			default:
+				return nil, errors.New("unsupported inbound protocol for client management")
+			}
+			for j, otherRaw := range next {
+				if j == i { continue }
+				other, ok := otherRaw.(map[string]interface{})
+				if !ok { return nil, errors.New("invalid client entry") }
+				if stringField(other, credentialKey) == stringField(updated, credentialKey) {
+					return nil, fmt.Errorf("client %s already exists", credentialKey)
+				}
+			}
+			next[i] = updated
+			break
+		}
+		if !found {
+			return nil, os.ErrNotExist
+		}
+		return next, nil
+	})
+}
+
 func (m *ConfigManager) DeleteClient(tag, email string) error {
-	if email == "" || len(email) > 128 || strings.ContainsAny(email, "\r\n") {
+	if !validClientEmail(email) {
 		return errors.New("invalid client email")
 	}
 	return m.mutateClients(tag, func(_ string, clients []interface{}) ([]interface{}, error) {

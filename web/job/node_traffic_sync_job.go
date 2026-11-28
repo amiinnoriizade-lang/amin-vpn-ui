@@ -245,7 +245,13 @@ func nodeSpeedDelta(previous map[string]nodeCounterSample, current map[string]*n
 }
 
 func (j *NodeTrafficSyncJob) syncNode(n model.Node, now int64) ([]nodeClientDelta, []string, map[string]int64, error) {
- if n.AgentMode { return syncNativeAgentNode(n, now) }
+ if n.AgentMode {
+  previous := j.previous[n.Id]
+  if previous == nil { previous = make(map[string]nodeCounterSample) }
+  deltas, online, last, err := syncNativeAgentNode(n, now, previous)
+  if err == nil { j.previous[n.Id] = previous }
+  return deltas, online, last, err
+ }
  raw, err := nodeRequest(context.Background(), n, http.MethodGet, "panel/api/inbounds/list")
  if err != nil { return nil, nil, nil, fmt.Errorf("fetch inbounds: %w", err) }
  var inbounds []remoteInboundSnapshot
@@ -280,12 +286,21 @@ func (j *NodeTrafficSyncJob) syncNode(n model.Node, now int64) ([]nodeClientDelt
   c.Online = online[email]
   if lastOnline[email] > c.LastOnline { c.LastOnline = lastOnline[email] }
  }
+ next,deltas:=nodeSpeedDelta(j.previous[n.Id],clients,now)
+ j.previous[n.Id]=next
+ rates:=make(map[string]nodeClientDelta,len(deltas))
+ for _,rate:=range deltas { rates[rate.Email]=rate }
  clientRows := make([]model.NodeClientSnapshot,0,len(clients))
  for email,c := range clients {
-  clientRows=append(clientRows,model.NodeClientSnapshot{
+  row:=model.NodeClientSnapshot{
    NodeID:n.Id,Email:email,Up:c.Up,Down:c.Down,Total:c.Total,ExpiryTime:c.ExpiryTime,
    Enable:c.Enable,Online:c.Online,LastOnline:c.LastOnline,LastSyncAt:now,
-  })
+  }
+  if rate,ok:=rates[email];ok {
+   row.UpSpeed=rate.Up*1000/nodeTrafficPollIntervalMs
+   row.DownSpeed=rate.Down*1000/nodeTrafficPollIntervalMs
+  }
+  clientRows=append(clientRows,row)
  }
  db:=database.GetDB()
  err=db.Transaction(func(tx *gorm.DB) error {
@@ -298,8 +313,6 @@ func (j *NodeTrafficSyncJob) syncNode(n model.Node, now int64) ([]nodeClientDelt
   }).Error
  })
  if err!=nil { return nil,nil,nil,err }
- next,deltas:=nodeSpeedDelta(j.previous[n.Id],clients,now)
- j.previous[n.Id]=next
  last := make(map[string]int64,len(clients))
  for email,c:=range clients { if c.LastOnline>0 { last[email]=c.LastOnline } }
  return deltas,onlineEmails,last,nil

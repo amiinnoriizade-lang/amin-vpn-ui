@@ -13,6 +13,7 @@ import (
 
 
  "github.com/google/uuid"
+ "github.com/skip2/go-qrcode"
  "github.com/mhsanaei/3x-ui/v2/web/job"
  "github.com/mhsanaei/3x-ui/v2/web/websocket"
  "strconv"
@@ -325,7 +326,7 @@ func (a *NodeController) createClient(c *gin.Context) {
    }
   }
   client:=map[string]any{"email":req.Email,"level":0}
-  switch protocol { case "vless","vmess": client["id"]=uuid.NewString(); case "trojan": client["password"]=uuid.NewString() }
+  switch protocol { case "vless","vmess": client["id"]=uuid.NewString(); case "trojan","shadowsocks": client["password"]=uuid.NewString() }
   if req.Flow!="" { client["flow"]=req.Flow }
   if err=job.NativeAgentCreateClient(ctx,n,inbound.RemoteTag,client); err!=nil {
    msg:="AMIN Agent rejected client creation: "+err.Error()
@@ -421,6 +422,12 @@ type nodeClientMutation struct {
  TotalBytes int64 `json:"totalBytes"`
  ExpiryTime int64 `json:"expiryTime"`
  Enable bool `json:"enable"`
+ ID string `json:"id"`
+ Password string `json:"password"`
+ Flow *string `json:"flow"`
+ Security string `json:"security"`
+ Level *int `json:"level"`
+ AlterID *int `json:"alterId"`
 }
 
 func (a *NodeController) listNodeClients(c *gin.Context) {
@@ -470,7 +477,43 @@ func validRemoteEmail(email string) bool {
 
 func (a *NodeController) updateNodeClient(c *gin.Context) {
  n,ok:=a.loadManageableNode(c); if !ok { return }
- if n.AgentMode { c.JSON(http.StatusNotImplemented,gin.H{"success":false,"msg":"client update is not yet supported by the current AMIN Node Agent API"}); return }
+ if n.AgentMode {
+  email:=strings.ToLower(strings.TrimSpace(c.Param("email")))
+  if !validRemoteEmail(email) { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid username"}); return }
+  var exists model.NodeClientSnapshot
+  if err:=nodeDB().Where("node_id = ? AND email = ?",n.Id,email).First(&exists).Error; err!=nil { c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"client not found in this node"}); return }
+  var req nodeClientMutation
+  if err:=c.ShouldBindJSON(&req); err!=nil { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid client update"}); return }
+  if req.TotalBytes!=0 || req.ExpiryTime!=0 {
+   c.JSON(http.StatusNotImplemented,gin.H{"success":false,"msg":"AMIN Node Agent does not yet enforce traffic quota or expiry; those fields were not changed"}); return
+  }
+  patch:=map[string]any{}
+  if strings.TrimSpace(req.ID)!="" { patch["id"]=strings.TrimSpace(req.ID) }
+  if strings.TrimSpace(req.Password)!="" { patch["password"]=strings.TrimSpace(req.Password) }
+  if req.Flow!=nil { patch["flow"]=*req.Flow }
+  if req.Security!="" { patch["security"]=req.Security }
+  if req.Level!=nil { patch["level"]=*req.Level }
+  if req.AlterID!=nil { patch["alterId"]=*req.AlterID }
+  if len(patch)==0 {
+   c.JSON(http.StatusNotImplemented,gin.H{"success":false,"msg":"For AMIN Agent clients, provide at least one supported field: id, password, flow, security, level or alterId. Quota, expiry and enable toggles are not supported."}); return
+  }
+  ctx,cancel:=context.WithTimeout(c.Request.Context(),20*time.Second); defer cancel()
+  inbounds,err:=job.NativeAgentListInbounds(ctx,n)
+  if err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":err.Error()}); return }
+  matched:=false
+  for _,ib:=range inbounds {
+   var settings struct { Clients []struct { Email string `json:"email"` } `json:"clients"` }
+   if len(ib.Settings)>0 { if e:=json.Unmarshal(ib.Settings,&settings); e!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"invalid client settings from native inbound "+ib.Tag}); return } }
+   for _,cl:=range settings.Clients { if strings.EqualFold(strings.TrimSpace(cl.Email),email) {
+    if err=job.NativeAgentUpdateClient(ctx,n,ib.Tag,email,patch); err!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"client update failed on inbound "+ib.Tag+": "+err.Error()}); return }
+    matched=true
+   } }
+  }
+  if !matched { c.JSON(http.StatusNotFound,gin.H{"success":false,"msg":"client not found on this native node"}); return }
+  _=nodeDB().Model(&model.NodeClientSnapshot{}).Where("node_id = ? AND email = ?",n.Id,email).Update("last_sync_at",time.Now().UnixMilli()).Error
+  c.JSON(http.StatusOK,gin.H{"success":true,"msg":"supported client fields updated on AMIN Agent"})
+  return
+ }
  email:=strings.ToLower(strings.TrimSpace(c.Param("email")))
  if !validRemoteEmail(email) { c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"invalid username"}); return }
  var exists model.NodeClientSnapshot
@@ -692,6 +735,15 @@ func buildNativeAgentShareLink(publicHost,nodeName string,ib job.NativeAgentInbo
  switch protocol {
  case "vless","trojan":
   return fmt.Sprintf("%s://%s@%s?%s#%s",protocol,url.QueryEscape(credential),net.JoinHostPort(host,strconv.Itoa(ib.Port)),q.Encode(),label),protocol,remark,nil
+ case "shadowsocks":
+  var inboundSettings map[string]any
+  if len(ib.Settings)==0 || json.Unmarshal(ib.Settings,&inboundSettings)!=nil {
+   return "","","",fmt.Errorf("خواندن تنظیمات Shadowsocks ناموفق بود")
+  }
+  method:=nativeString(inboundSettings,"method")
+  if method=="" { return "","","",fmt.Errorf("روش رمزنگاری Shadowsocks در تنظیمات Inbound مشخص نشده است") }
+  userInfo:=base64.RawURLEncoding.EncodeToString([]byte(method+":"+credential))
+  return fmt.Sprintf("ss://%s@%s#%s",userInfo,net.JoinHostPort(host,strconv.Itoa(ib.Port)),label),"shadowsocks",remark,nil
  case "vmess":
   tlsValue:=""; if security=="tls" { tlsValue="tls" }
   wsPath,wsHost:=q.Get("path"),q.Get("host")
@@ -701,6 +753,15 @@ func buildNativeAgentShareLink(publicHost,nodeName string,ib job.NativeAgentInbo
  default:
   return "","","",fmt.Errorf("تولید لینک برای پروتکل %s پشتیبانی نشده است",protocol)
  }
+}
+
+
+// nativeShareQRCode returns a locally generated QR image. Credentials are never
+// sent to an external QR service.
+func nativeShareQRCode(link string) (string,error) {
+ png,err:=qrcode.Encode(link,qrcode.Medium,256)
+ if err!=nil { return "",fmt.Errorf("ساخت QR کانفیگ ناموفق بود: %w",err) }
+ return "data:image/png;base64,"+base64.StdEncoding.EncodeToString(png),nil
 }
 
 // nodeClientConfig fetches live Sanaei credentials and builds a share URI without
@@ -726,7 +787,9 @@ func (a *NodeController) nodeClientConfig(c *gin.Context) {
     if !strings.EqualFold(strings.TrimSpace(fmt.Sprint(client["email"])),email) { continue }
     link,protocol,remark,linkErr:=buildNativeAgentShareLink(n.PublicAddress,n.Name,ib,client,email)
     if linkErr!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":linkErr.Error()}); return }
-    c.JSON(http.StatusOK,gin.H{"success":true,"obj":gin.H{"email":email,"nodeName":n.Name,"inbound":remark,"protocol":protocol,"port":ib.Port,"link":link}})
+    qr,qrErr:=nativeShareQRCode(link)
+    if qrErr!=nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":qrErr.Error()}); return }
+    c.JSON(http.StatusOK,gin.H{"success":true,"obj":gin.H{"email":email,"nodeName":n.Name,"inbound":remark,"protocol":protocol,"port":ib.Port,"link":link,"qrCode":qr}})
     return
    }
   }
@@ -793,10 +856,21 @@ func (a *NodeController) nodeClientConfig(c *gin.Context) {
   }
   if security=="reality" {
    settings,_:=tlsCfg["settings"].(map[string]any)
-   for source,target:=range map[string]string{"publicKey":"pbk","shortId":"sid","spiderX":"spx"} {
-    val:=strings.TrimSpace(fmt.Sprint(settings[source])); if val!="" && val!="<nil>" { q.Set(target,val) }
+   publicKey:=nativeString(settings,"publicKey")
+   if publicKey=="" {
+    var keyErr error
+    publicKey,keyErr=realityPublicKey(nativeString(tlsCfg,"privateKey"))
+    if keyErr!=nil { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":keyErr.Error()}); return }
    }
-   if q.Get("pbk")=="" { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"Public Key واقعی Reality در تنظیمات Inbound پیدا نشد"}); return }
+   q.Set("pbk",publicKey)
+   shortID:=nativeString(settings,"shortId")
+   if shortID!="" { q.Set("sid",shortID) } else if shortID,ok:=nativeFirstStringIncludingEmpty(tlsCfg["shortIds"]); ok { q.Set("sid",shortID) }
+   if spiderX:=nativeString(settings,"spiderX"); spiderX!="" { q.Set("spx",spiderX) }
+   if q.Get("sni")=="" {
+    if sni:=nativeString(settings,"serverName"); sni!="" { q.Set("sni",sni) } else if sni:=nativeFirstString(tlsCfg["serverNames"]); sni!="" { q.Set("sni",sni) }
+   }
+   if q.Get("sni")=="" { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"هیچ serverName معتبری در Reality تنظیم نشده است"}); return }
+   if _,exists:=q["sid"]; !exists { c.JSON(http.StatusBadGateway,gin.H{"success":false,"msg":"هیچ shortId معتبری در Reality تنظیم نشده است"}); return }
   }
  }
  switch network {
@@ -825,5 +899,7 @@ func (a *NodeController) nodeClientConfig(c *gin.Context) {
  default:
   c.JSON(http.StatusBadRequest,gin.H{"success":false,"msg":"تولید لینک برای پروتکل "+protocol+" پشتیبانی نشده است"}); return
  }
- c.JSON(http.StatusOK,gin.H{"success":true,"obj":gin.H{"email":email,"nodeName":n.Name,"inbound":remark,"protocol":protocol,"link":link}})
+ qr,qrErr:=nativeShareQRCode(link)
+ if qrErr!=nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":qrErr.Error()}); return }
+ c.JSON(http.StatusOK,gin.H{"success":true,"obj":gin.H{"email":email,"nodeName":n.Name,"inbound":remark,"protocol":protocol,"link":link,"qrCode":qr}})
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/subtle"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -103,6 +104,12 @@ func inboundAPI(manager *xray.ConfigManager) http.HandlerFunc {
 			if err := decodeBody(w, r, &in); err != nil { writeError(w, err); return }
 			if err := manager.AddInbound(in); err != nil { writeError(w, err); return }
 			writeJSON(w, http.StatusCreated, envelope{Success: true, Msg: "inbound created"})
+		case r.URL.Path == "/api/v1/stats" && r.Method == http.MethodGet:
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			defer cancel()
+			stats, err := manager.QueryUserTraffic(ctx)
+			if err != nil { writeError(w, err); return }
+			writeJSON(w, http.StatusOK, envelope{Success: true, Obj: stats})
 		default:
 			rest := strings.TrimPrefix(r.URL.Path, "/api/v1/inbounds/")
 			parts := strings.Split(rest, "/")
@@ -122,8 +129,14 @@ func inboundAPI(manager *xray.ConfigManager) http.HandlerFunc {
 					email := r.URL.Query().Get("email")
 					if err := manager.DeleteClient(parts[0], email); err != nil { writeError(w, err); return }
 					writeJSON(w, http.StatusOK, envelope{Success: true, Msg: "client deleted"})
+				case http.MethodPut:
+					email := r.URL.Query().Get("email")
+					var patch map[string]interface{}
+					if err := decodeBody(w, r, &patch); err != nil { writeError(w, err); return }
+					if err := manager.UpdateClient(parts[0], email, patch); err != nil { writeError(w, err); return }
+					writeJSON(w, http.StatusOK, envelope{Success: true, Msg: "client updated"})
 				default:
-					w.Header().Set("Allow", "POST, DELETE")
+					w.Header().Set("Allow", "POST, PUT, DELETE")
 					writeJSON(w, http.StatusMethodNotAllowed, envelope{Success: false, Msg: "method not allowed"})
 				}
 				return
@@ -131,6 +144,34 @@ func inboundAPI(manager *xray.ConfigManager) http.HandlerFunc {
 			writeJSON(w, http.StatusNotFound, envelope{Success: false, Msg: "route not found"})
 		}
 	}
+}
+
+func protectedAPI(manager *xray.ConfigManager) http.Handler {
+	protected := http.NewServeMux()
+	protected.HandleFunc("/api/v1/capabilities", method(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+		features := []string{"health", "system", "capabilities"}
+		if manager != nil {
+			features = append(features, "inbounds.list", "inbounds.create", "inbounds.delete", "clients.create", "clients.update", "clients.delete")
+			if _, err := manager.StatsAPIAddress(); err == nil { features = append(features, "clients.stats") }
+		}
+		writeJSON(w, http.StatusOK, envelope{Success: true, Obj: map[string]interface{}{
+			"agentVersion": "0.3.2", "xrayManagement": manager != nil, "features": features,
+			"protocols": []string{"vless", "vmess", "trojan", "shadowsocks"},
+		}})
+	}))
+	protected.HandleFunc("/api/v1/system", method(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		writeJSON(w, http.StatusOK, envelope{Success: true, Obj: map[string]interface{}{
+			"goVersion": runtime.Version(), "goroutines": runtime.NumGoroutine(),
+			"heapAllocBytes": m.HeapAlloc, "uptimeSeconds": int64(time.Since(started).Seconds()),
+			"requests": atomic.LoadUint64(&requests), "os": runtime.GOOS, "arch": runtime.GOARCH,
+		}})
+	}))
+	protected.HandleFunc("/api/v1/inbounds", inboundAPI(manager))
+	protected.HandleFunc("/api/v1/inbounds/", inboundAPI(manager))
+	protected.Handle("/api/v1/stats", method(http.MethodGet, inboundAPI(manager)))
+	return protected
 }
 
 func main() {
@@ -162,31 +203,11 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", method(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, envelope{Success: true, Obj: map[string]interface{}{
-			"service": "amin-node-agent", "version": "0.2.2", "uptimeSeconds": int64(time.Since(started).Seconds()),
+			"service": "amin-node-agent", "version": "0.3.2", "uptimeSeconds": int64(time.Since(started).Seconds()),
 		}})
 	}))
-	protected := http.NewServeMux()
-	protected.HandleFunc("/api/v1/capabilities", method(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
-		features := []string{"health", "system", "capabilities"}
-		if manager != nil { features = append(features, "inbounds.list", "inbounds.create", "inbounds.delete", "clients.create", "clients.delete") }
-		writeJSON(w, http.StatusOK, envelope{Success: true, Obj: map[string]interface{}{
-			"agentVersion": "0.2.2", "xrayManagement": manager != nil, "features": features,
-			"protocols": []string{"vless", "vmess", "trojan", "shadowsocks"},
-		}})
-	}))
-	protected.HandleFunc("/api/v1/system", method(http.MethodGet, func(w http.ResponseWriter, r *http.Request) {
-		var m runtime.MemStats
-		runtime.ReadMemStats(&m)
-		writeJSON(w, http.StatusOK, envelope{Success: true, Obj: map[string]interface{}{
-			"goVersion": runtime.Version(), "goroutines": runtime.NumGoroutine(),
-			"heapAllocBytes": m.HeapAlloc, "uptimeSeconds": int64(time.Since(started).Seconds()),
-			"requests": atomic.LoadUint64(&requests), "os": runtime.GOOS, "arch": runtime.GOARCH,
-		}})
-	}))
-	protected.HandleFunc("/api/v1/inbounds", inboundAPI(manager))
-	protected.HandleFunc("/api/v1/inbounds/", inboundAPI(manager))
-	mux.Handle("/api/v1/", auth(token, protected))
+	mux.Handle("/api/v1/", auth(token, protectedAPI(manager)))
 	server := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
-	log.Printf("AMIN Node Agent 0.2.2 listening on %s", addr)
+	log.Printf("AMIN Node Agent 0.3.2 listening on %s", addr)
 	log.Fatal(server.ListenAndServe())
 }
