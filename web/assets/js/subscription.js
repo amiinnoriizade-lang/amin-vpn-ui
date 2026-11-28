@@ -12,15 +12,15 @@
     try {
       const parsed = new URL(link);
       const fragment = decodeURIComponent(parsed.hash.slice(1));
-      const match = fragment.match(/\\b(OpenVPN|L2TP\\/IPsec|PPTP|OpenConnect|SSTP|IKEv2)\\b/i);
+      const match = fragment.match(/\b(OpenVPN|L2TP\\/IPsec|PPTP|OpenConnect|SSTP|IKEv2)\b/i);
       if (!match) return null;
       const upper = match[1].toUpperCase();
       const protocol = upper === 'OPENVPN' ? 'OpenVPN' :
         upper === 'L2TP/IPSEC' ? 'L2TP/IPsec' :
         upper === 'IKEV2' ? 'IKEv2' : match[1][0].toUpperCase() + match[1].slice(1);
       const read = key => {
-        const found = fragment.match(new RegExp('(?:^|\\\\s)' + key + '=([^\\\\s]*)'));
-        return found ? found[1] : '';
+        const token = fragment.split(/\\s+/).find(part => part.startsWith(key + '='));
+        return token ? token.slice(key.length + 1) : '';
       };
       const fields = [
         { key: 'server', label: 'Server address', value: parsed.hostname },
