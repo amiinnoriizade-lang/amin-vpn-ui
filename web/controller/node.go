@@ -38,6 +38,10 @@ type nodeMutation struct {
  Port int `form:"port" json:"port"`
  BasePath string `form:"basePath" json:"basePath"`
  ApiToken string `form:"apiToken" json:"apiToken"`
+ SSHMode bool `form:"sshMode" json:"sshMode"`
+ SSHUsername string `form:"sshUsername" json:"sshUsername"`
+ SSHPort int `form:"sshPort" json:"sshPort"`
+ SSHPrivateKey string `form:"sshPrivateKey" json:"sshPrivateKey"`
  AgentMode bool `form:"agentMode" json:"agentMode"`
  Enable *bool `form:"enable" json:"enable"`
  AllowPrivateAddress bool `form:"allowPrivateAddress" json:"allowPrivateAddress"`
@@ -94,7 +98,11 @@ func validNodeMutation(v nodeMutation, creating bool) string {
   u,err:=url.Parse("https://"+v.Address)
   if err!=nil || u.Hostname()=="" || u.User!=nil || u.Path!="" { return "invalid address" }
  }
- if creating && strings.TrimSpace(v.ApiToken)=="" { return "apiToken is required" }
+ if v.SSHMode {
+  if strings.TrimSpace(v.SSHUsername)=="" { return "sshUsername is required for direct SSH nodes" }
+  if v.SSHPort<1 || v.SSHPort>65535 { return "sshPort must be between 1 and 65535" }
+  if creating && strings.TrimSpace(v.SSHPrivateKey)=="" { return "sshPrivateKey is required for a new SSH node" }
+ } else if creating && strings.TrimSpace(v.ApiToken)=="" { return "apiToken is required" }
  if v.AgentMode && v.Scheme=="http" && !v.AllowPrivateAddress { return "AMIN Agent over HTTP requires an explicitly trusted private management tunnel; otherwise use HTTPS" }
  if v.TlsVerifyMode!="" && v.TlsVerifyMode!="system" && v.TlsVerifyMode!="insecure" && v.TlsVerifyMode!="pinned" { return "invalid tlsVerifyMode" }
  if v.TlsVerifyMode=="pinned" && len(strings.TrimSpace(v.PinnedCertSha256))!=64 { return "pinned TLS mode requires a SHA-256 certificate fingerprint" }
@@ -113,9 +121,10 @@ func (a *NodeController) get(c *gin.Context) {
  c.JSON(http.StatusOK,gin.H{"success":true,"obj":n})
 }
 func nodeFromMutation(v nodeMutation, old model.Node) model.Node {
- old.Name=strings.TrimSpace(v.Name); old.Remark=v.Remark; old.AgentMode=v.AgentMode; old.Scheme=v.Scheme; if old.Scheme=="" {old.Scheme="https"}
+ old.Name=strings.TrimSpace(v.Name); old.Remark=v.Remark; old.AgentMode=v.AgentMode; old.SSHMode=v.SSHMode; old.SSHUsername=strings.TrimSpace(v.SSHUsername); old.SSHPort=v.SSHPort; old.Scheme=v.Scheme; if old.Scheme=="" {old.Scheme="https"}
  old.Address=strings.TrimSpace(v.Address); old.PublicAddress=strings.TrimSpace(v.PublicAddress); old.Port=v.Port; old.BasePath=strings.TrimSpace(v.BasePath)
  if v.ApiToken!="" {old.ApiToken=v.ApiToken}
+ if v.SSHPrivateKey!="" {old.SSHPrivateKey=v.SSHPrivateKey}
  if v.Enable!=nil {old.Enable=*v.Enable} else if old.Id==0 {old.Enable=true}
  old.AllowPrivateAddress=v.AllowPrivateAddress; old.TlsVerifyMode=v.TlsVerifyMode; if old.TlsVerifyMode=="" {old.TlsVerifyMode="system"}
  old.PinnedCertSha256=strings.TrimSpace(v.PinnedCertSha256); old.InboundSyncMode=v.InboundSyncMode; if old.InboundSyncMode=="" {old.InboundSyncMode="all"}
@@ -130,6 +139,11 @@ func (a *NodeController) add(c *gin.Context) {
  encryptedToken, tokenErr := nodetoken.Encrypt(n.ApiToken)
  if tokenErr != nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"could not protect node API token: "+tokenErr.Error()}); return }
  n.ApiToken = encryptedToken
+ if n.SSHMode {
+  encryptedKey, keyErr := nodetoken.Encrypt(n.SSHPrivateKey)
+  if keyErr != nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"could not protect SSH private key"}); return }
+  n.SSHPrivateKey = encryptedKey
+ }
  if err:=nodeDB().Create(&n).Error; err!=nil {c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":err.Error()});return}
  c.JSON(http.StatusOK,gin.H{"success":true,"obj":n})
 }
@@ -144,6 +158,11 @@ func (a *NodeController) update(c *gin.Context) {
  encryptedToken, tokenErr := nodetoken.Encrypt(n.ApiToken)
  if tokenErr != nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"could not protect node API token: "+tokenErr.Error()}); return }
  n.ApiToken = encryptedToken
+ if v.SSHPrivateKey!="" {
+  encryptedKey, keyErr := nodetoken.Encrypt(v.SSHPrivateKey)
+  if keyErr != nil { c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":"could not protect SSH private key"}); return }
+  n.SSHPrivateKey = encryptedKey
+ }
  if err=nodeDB().Save(&n).Error; err!=nil {c.JSON(http.StatusInternalServerError,gin.H{"success":false,"msg":err.Error()});return}
  c.JSON(http.StatusOK,gin.H{"success":true,"obj":n})
 }
