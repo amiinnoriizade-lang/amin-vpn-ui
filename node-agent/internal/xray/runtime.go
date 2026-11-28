@@ -85,11 +85,24 @@ func apiPort(cfg map[string]interface{}) (int, error) {
 		if !ok || stringField(in, "tag") != "api" {
 			continue
 		}
-		port, ok := in["port"].(float64)
-		if !ok || port < 1 || port > 65535 {
+		var port int
+		switch value := in["port"].(type) {
+		case float64:
+			port = int(value)
+			if float64(port) != value { return 0, errors.New("Xray API inbound has a non-integer port") }
+		case int:
+			port = value
+		case int32:
+			port = int(value)
+		case int64:
+			port = int(value)
+		default:
 			return 0, errors.New("Xray API inbound has an invalid port")
 		}
-		return int(port), nil
+		if port < 1 || port > 65535 {
+			return 0, errors.New("Xray API inbound has an invalid port")
+		}
+		return port, nil
 	}
 	return 0, errors.New("Xray API inbound with tag api was not found")
 }
