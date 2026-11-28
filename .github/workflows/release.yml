@@ -70,7 +70,7 @@ jobs:
           cd ..
           sha256sum vpn-ui-amd64 amin-node-agent-linux-amd64 amin-node-agent-linux-arm64 > SHA256SUMS
 
-      - name: Upload experimental amd64 binary
+      - name: Upload experimental panel and Agent binaries
         if: startsWith(github.ref, 'refs/heads/feat/sanaei-') || github.ref == 'refs/heads/feat/amin-native-node-api' || github.ref == 'refs/heads/feat/amin-agent-client-update'
         uses: actions/upload-artifact@v4
         with:
@@ -107,6 +107,10 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: vpn-ui-amd64
+          files: |
+            vpn-ui-amd64
+            amin-node-agent-linux-amd64
+            amin-node-agent-linux-arm64
+            SHA256SUMS
           make_latest: true
           generate_release_notes: true
