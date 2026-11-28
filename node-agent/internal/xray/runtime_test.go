@@ -127,3 +127,35 @@ func TestValidateRuntimeClient(t *testing.T) {
 		})
 	}
 }
+
+func TestDeleteStaticClientUsesLiveAPIAndTombstoneWithoutConfigRewrite(t *testing.T) {
+	manager, configPath, _ := runtimeTestManager(t)
+	cfg, err := manager.read()
+	if err != nil { t.Fatal(err) }
+	inbounds, err := inboundList(cfg)
+	if err != nil { t.Fatal(err) }
+	edge := inbounds[1].(map[string]interface{})
+	settings := edge["settings"].(map[string]interface{})
+	settings["clients"] = []interface{}{map[string]interface{}{"email":"Legacy-User","id":"00000000-0000-4000-8000-000000000129"}}
+	updated, err := json.Marshal(cfg)
+	if err != nil { t.Fatal(err) }
+	if err := os.WriteFile(configPath,updated,0600); err != nil { t.Fatal(err) }
+	original, err := os.ReadFile(configPath)
+	if err != nil { t.Fatal(err) }
+	api := &fakeRuntimeAPI{}
+	m := &RuntimeManager{config:manager,api:api,path:filepath.Join(t.TempDir(),"state.json"),state:runtimeState{Version:1,Clients:[]runtimeClient{},Deleted:[]runtimeTombstone{}}}
+	if err := m.load(); err != nil { t.Fatal(err) }
+	if err := m.DeleteClient("edge","legacy-user"); err != nil { t.Fatal(err) }
+	if len(api.removed)!=1 || api.removed[0]!="edge:Legacy-User" { t.Fatalf("expected exact-case live deletion, got %#v",api.removed) }
+	after, err := os.ReadFile(configPath)
+	if err != nil { t.Fatal(err) }
+	if string(after)!=string(original) { t.Fatal("deleting a static client rewrote Xray config") }
+	inbounds, err = m.ListInbounds()
+	if err != nil { t.Fatal(err) }
+	edgeSettings:=inbounds[1]["settings"].(map[string]interface{})
+	clients:=edgeSettings["clients"].([]interface{})
+	if len(clients)!=0 { t.Fatalf("deleted static client remained in list: %#v",clients) }
+	if len(m.state.Deleted)!=1 || m.state.Deleted[0].Email!="Legacy-User" { t.Fatalf("tombstone was not persisted: %#v",m.state.Deleted) }
+	if err:=m.reconcileForPID(222); err!=nil { t.Fatal(err) }
+	if len(api.removed)!=2 { t.Fatalf("deleted static client was not re-applied after Xray restart: %#v",api.removed) }
+}
