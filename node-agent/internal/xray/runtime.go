@@ -281,6 +281,40 @@ func (m *RuntimeManager) ListInbounds() ([]map[string]interface{}, error) {
 	return inbounds, nil
 }
 
+func validateRuntimeClient(proto string, client map[string]interface{}) (string, error) {
+	allowed := map[string]bool{"email":true, "id":true, "level":true, "flow":true, "alterId":true, "security":true, "password":true, "cipher":true}
+	for key := range client {
+		if !allowed[key] { return "", fmt.Errorf("unsupported client field: %s", key) }
+	}
+	email := stringField(client, "email")
+	if email == "" || len(email) > 128 || strings.TrimSpace(email) != email || strings.ContainsAny(email, " \t\r\n") {
+		return "", errors.New("client email is required and must not contain whitespace")
+	}
+	for _, key := range []string{"email","id","flow","security","password","cipher"} {
+		if value, ok := client[key]; ok {
+			if _, valid := value.(string); !valid { return "", fmt.Errorf("client field %s must be a string", key) }
+		}
+	}
+	for _, key := range []string{"level","alterId"} {
+		if value, ok := client[key]; ok {
+			switch value.(type) {
+			case float64, int, int32, int64:
+			default: return "", fmt.Errorf("client field %s must be a number", key)
+			}
+		}
+	}
+	switch proto {
+	case "vless","vmess":
+		if !uuidPattern.MatchString(stringField(client,"id")) { return "", errors.New("client requires a valid UUID") }
+		return "id", nil
+	case "trojan","shadowsocks":
+		if stringField(client,"password") == "" { return "", errors.New("client requires a password") }
+		return "password", nil
+	default:
+		return "", fmt.Errorf("live client management is unsupported for protocol %s", proto)
+	}
+}
+
 func (m *RuntimeManager) AddClient(tag string, client map[string]interface{}) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -288,9 +322,6 @@ func (m *RuntimeManager) AddClient(tag string, client map[string]interface{}) er
 		return errors.New("Xray live API is unavailable")
 	}
 	email := stringField(client, "email")
-	if email == "" || strings.TrimSpace(email) != email || strings.ContainsAny(email, " \t\r\n") || len(email) > 128 {
-		return errors.New("client email is required and must not contain whitespace")
-	}
 	inbounds, err := m.config.ListInbounds()
 	if err != nil {
 		return err
@@ -312,27 +343,21 @@ func (m *RuntimeManager) AddClient(tag string, client map[string]interface{}) er
 	if !found {
 		return os.ErrNotExist
 	}
+	credentialKey, err := validateRuntimeClient(proto, client)
+	if err != nil { return err }
+	credential := stringField(client, credentialKey)
 	for _, raw := range staticClients {
-		if existing, ok := raw.(map[string]interface{}); ok && stringField(existing, "email") == email {
-			return errors.New("client email already exists in Xray config")
+		if existing, ok := raw.(map[string]interface{}); ok {
+			if stringField(existing, "email") == email { return errors.New("client email already exists in Xray config") }
+			if stringField(existing, credentialKey) == credential { return fmt.Errorf("client %s already exists in Xray config", credentialKey) }
 		}
 	}
 	key := runtimeKey(tag, email)
 	for _, entry := range m.state.Clients {
-		if runtimeKey(entry.Tag, stringField(entry.Client, "email")) == key {
-			return errors.New("client already exists")
+		if entry.Tag == tag {
+			if runtimeKey(entry.Tag, stringField(entry.Client, "email")) == key { return errors.New("client already exists") }
+			if stringField(entry.Client, credentialKey) == credential { return fmt.Errorf("client %s already exists", credentialKey) }
 		}
-	}
-	if proto == "vless" || proto == "vmess" {
-		if !uuidPattern.MatchString(stringField(client, "id")) {
-			return errors.New("client requires a valid UUID")
-		}
-	} else if proto == "trojan" || proto == "shadowsocks" {
-		if stringField(client, "password") == "" {
-			return errors.New("client requires a password")
-		}
-	} else {
-		return fmt.Errorf("live client management is unsupported for protocol %s", proto)
 	}
 	entry := runtimeClient{Tag: tag, Protocol: proto, Client: client}
 	m.state.Clients = append(m.state.Clients, entry)
