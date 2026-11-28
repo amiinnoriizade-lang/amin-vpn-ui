@@ -46,6 +46,7 @@ func DialSSHNode(cfg SSHNodeConfig) (*ssh.Client, error) {
 		HostKeyCallback: hostKeyCallback, Timeout: cfg.Timeout,
 	})
 	if err != nil { _ = conn.Close(); return nil, fmt.Errorf("authenticate SSH node: %w", err) }
+	_ = conn.SetDeadline(time.Time{})
 	return ssh.NewClient(clientConn, chans, reqs), nil
 }
 
@@ -99,6 +100,7 @@ func RunSSHNodeCommand(cfg SSHNodeConfig, command string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("authenticate SSH node: %w", err)
 	}
+	_ = conn.SetDeadline(time.Time{})
 	client := ssh.NewClient(clientConn, chans, reqs)
 	defer client.Close()
 
