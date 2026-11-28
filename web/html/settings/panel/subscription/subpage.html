@@ -96,6 +96,35 @@
         background: rgba(0, 0, 0, 0.05);
         border-color: rgba(0, 0, 0, 0.14);
     }
+
+/* AMIN UI subscription experience: bright, friendly, responsive surface */
+body:has(.subscription-page) { background:#eef7ff; background-image:radial-gradient(ellipse at 8% 8%,rgba(34,211,183,.22),transparent 34%),radial-gradient(ellipse at 92% 18%,rgba(99,102,241,.18),transparent 32%),linear-gradient(145deg,#f3fbff 0%,#f8f5ff 48%,#fff8ef 100%); }
+.subscription-page { min-height:100vh; background:transparent !important; padding:clamp(10px,2.4vw,30px) 0 36px; }
+.subscription-page .subscription-card { position:relative; overflow:hidden; border:1px solid rgba(104,145,190,.22) !important; border-radius:24px !important; box-shadow:0 22px 65px rgba(50,91,140,.13) !important; background:rgba(255,255,255,.92) !important; }
+.subscription-page .subscription-card::before { content:""; display:block; height:7px; position:absolute; inset:0 0 auto; z-index:2; background:linear-gradient(90deg,#16c7a2,#39a8ff,#8b7cf6,#ffb86b); }
+.subscription-page .subscription-card > .ant-card-head { padding:18px 24px; border-bottom:1px solid rgba(100,140,180,.15); background:linear-gradient(110deg,rgba(22,199,162,.09),rgba(70,150,255,.07),rgba(139,124,246,.08)); }
+.subscription-page .subscription-card > .ant-card-head .ant-card-head-title { font-size:clamp(18px,2vw,23px); font-weight:800; color:#18324b; }
+.subscription-page .subscription-card > .ant-card-body { padding:clamp(16px,3vw,30px); }
+.subscription-page .qr-box { padding:14px; border-radius:20px; background:linear-gradient(145deg,#effffb,#f0f6ff 55%,#f8f1ff); border:1px solid rgba(91,160,190,.18); box-shadow:0 9px 26px rgba(59,112,151,.08); }
+.subscription-page .qr-tag { border:0; border-radius:999px; padding:5px 13px; font-weight:700; background:linear-gradient(90deg,#d9fff4,#e2edff) !important; color:#176b70 !important; }
+.subscription-page .qr-bg, .subscription-page .qr-bg-sub { border-radius:16px; }
+.subscription-page .ant-descriptions { border-radius:16px; overflow:hidden; }
+.subscription-page .ant-descriptions-view { border-radius:16px; border:1px solid rgba(94,145,180,.18); }
+.subscription-page .ant-descriptions-item-label { background:#f0f8ff !important; color:#42617d !important; font-weight:700; }
+.subscription-page .ant-descriptions-item-content { background:rgba(255,255,255,.96) !important; color:#18324b; font-weight:600; }
+.subscription-page .subscription-link-box { background:linear-gradient(120deg,#effcf8,#f1f6ff) !important; color:#21445c !important; border:1px solid rgba(68,160,170,.22) !important; box-shadow:0 8px 22px rgba(47,104,144,.08) !important; }
+.subscription-page .subscription-link-box:hover { transform:translateY(-2px); border-color:#38bfa9 !important; box-shadow:0 12px 28px rgba(47,140,150,.15) !important; }
+.subscription-page .ant-btn { border-radius:12px; font-weight:700; }
+.subscription-page .sub-config-btn { border-radius:14px; min-height:46px; }
+@media (max-width:576px) { .subscription-page .subscription-card { border-radius:18px !important; } .subscription-page .subscription-card > .ant-card-body { padding:14px; } .subscription-page .qr-box { padding:9px; } }
+body.dark:has(.subscription-page), html[data-theme='ultra-dark'] body.dark:has(.subscription-page) { background:#101a2b; background-image:radial-gradient(ellipse at 8% 8%,rgba(22,199,162,.15),transparent 36%),radial-gradient(ellipse at 92% 18%,rgba(99,102,241,.17),transparent 34%),linear-gradient(145deg,#101a2b,#17172c 65%,#211b2c); }
+body.dark .subscription-page .subscription-card { background:rgba(24,34,52,.96) !important; border-color:rgba(145,178,215,.18) !important; }
+body.dark .subscription-page .subscription-card > .ant-card-head { background:linear-gradient(110deg,rgba(22,199,162,.13),rgba(70,150,255,.12),rgba(139,124,246,.14)); }
+body.dark .subscription-page .subscription-card > .ant-card-head .ant-card-head-title, body.dark .subscription-page .ant-descriptions-item-content { color:#e7f2ff; }
+body.dark .subscription-page .ant-descriptions-item-label { background:#1b2b40 !important; color:#a9c5df !important; }
+body.dark .subscription-page .ant-descriptions-item-content { background:#172438 !important; }
+body.dark .subscription-page .qr-box { background:linear-gradient(145deg,#193c3b,#1b2b48 58%,#302548); border-color:rgba(135,190,210,.16); }
+body.dark .subscription-page .subscription-link-box { background:linear-gradient(120deg,#182f35,#1c2941) !important; color:#e4f6ff !important; border-color:rgba(95,205,190,.24) !important; }
 </style>
 {{ template "page/head_end" .}}
 
