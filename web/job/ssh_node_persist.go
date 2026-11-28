@@ -58,7 +58,7 @@ try:
     try:
         with open(tmp,"w",encoding="utf-8") as f:
             json.dump(config,f,ensure_ascii=False,indent=2)
-            f.write("\\n")
+            f.write("\n")
         shutil.copystat(p,tmp)
         check=subprocess.run([xray,"run","-test","-config",tmp],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,timeout=20)
         if check.returncode!=0: raise RuntimeError("Xray config validation failed: "+check.stdout[-1500:])
