@@ -29,7 +29,7 @@ BEFORE_PID="$(systemctl show -p MainPID --value "$SERVICE" 2>/dev/null || true)"
 export AMIN_NODE_TOKEN BASE SERVICE BEFORE_PID
 
 python3 <<'PY'
-import json, os, sys, time, uuid, urllib.request, urllib.error
+import json, os, sys, time, uuid, urllib.request, urllib.error, urllib.parse
 
 base = os.environ["BASE"].rstrip("/")
 token = os.environ["AMIN_NODE_TOKEN"]
