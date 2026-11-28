@@ -482,7 +482,7 @@ func (m *RuntimeManager) DeleteClient(tag, email string) error {
 		settings, _ := in["settings"].(map[string]interface{})
 		clients, _ := settings["clients"].([]interface{})
 		for _, raw := range clients {
-			if existing, ok := raw.(map[string]interface{}); ok && stringField(existing, "email") == email { found = true; break }
+			if existing, ok := raw.(map[string]interface{}); ok && strings.EqualFold(stringField(existing, "email"), email) { email = stringField(existing, "email"); found = true; break }
 		}
 		break
 	}
