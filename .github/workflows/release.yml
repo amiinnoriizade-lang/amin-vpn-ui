@@ -8,6 +8,7 @@ on:
       - feat/sanaei-node-user-management
       - feat/amin-native-node-api
       - feat/amin-agent-client-update
+      - feat/aminui-login-subscription-design
     tags:
       - "v*"
   workflow_dispatch:
@@ -71,7 +72,7 @@ jobs:
           sha256sum vpn-ui-amd64 amin-node-agent-linux-amd64 amin-node-agent-linux-arm64 > SHA256SUMS
 
       - name: Upload experimental panel and Agent binaries
-        if: startsWith(github.ref, 'refs/heads/feat/sanaei-') || github.ref == 'refs/heads/feat/amin-native-node-api' || github.ref == 'refs/heads/feat/amin-agent-client-update'
+        if: startsWith(github.ref, 'refs/heads/feat/sanaei-') || github.ref == 'refs/heads/feat/amin-native-node-api' || github.ref == 'refs/heads/feat/amin-agent-client-update' || github.ref == 'refs/heads/feat/aminui-login-subscription-design'
         uses: actions/upload-artifact@v4
         with:
           name: amin-ui-linux-amd64-${{ github.sha }}
