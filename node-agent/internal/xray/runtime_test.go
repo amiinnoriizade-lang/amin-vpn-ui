@@ -167,7 +167,7 @@ func TestRuntimeClientCanReplaceTombstonedStaticIdentity(t *testing.T) {
 	inbounds, err := inboundList(cfg)
 	if err != nil { t.Fatal(err) }
 	settings:=inbounds[1].(map[string]interface{})["settings"].(map[string]interface{})
-	settings["clients"]=[]interface{}{map[string]interface{}{"email":"reuse-me","id":"00000000-0000-4000-8000-000000000130"}}
+	settings["clients"]=[]interface{}{map[string]interface{}{"email":"Reuse-Me","id":"00000000-0000-4000-8000-000000000130"}}
 	data,err:=json.Marshal(cfg)
 	if err!=nil { t.Fatal(err) }
 	if err:=os.WriteFile(configPath,data,0600);err!=nil {t.Fatal(err)}
@@ -177,6 +177,7 @@ func TestRuntimeClientCanReplaceTombstonedStaticIdentity(t *testing.T) {
 	if err:=m.DeleteClient("edge","reuse-me");err!=nil {t.Fatal(err)}
 	newClient:=map[string]interface{}{"email":"reuse-me","id":"00000000-0000-4000-8000-000000000131"}
 	if err:=m.AddClient("edge",newClient);err!=nil {t.Fatal(err)}
+	if len(api.removed)!=2 || api.removed[1]!="edge:Reuse-Me" { t.Fatalf("replacement did not remove the exact legacy email: %#v",api.removed) }
 	listed,err:=m.ListInbounds()
 	if err!=nil {t.Fatal(err)}
 	clients:=listed[1]["settings"].(map[string]interface{})["clients"].([]interface{})
